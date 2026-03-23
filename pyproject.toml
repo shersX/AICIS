@@ -1,7 +1,7 @@
 [project]
-name = "SuperMew"
+name = "AICIS-knowledge-assistant"
 version = "0.1.0"
-description = "Add your description here"
+description = "AICIS知识情报助手 - 基于LLM的智能情报助手"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

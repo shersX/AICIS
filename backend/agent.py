@@ -122,7 +122,7 @@ def create_agent_instance():
         model=model,
         tools=[get_current_weather, search_knowledge_base],
         system_prompt=(
-            "You are a cute cat bot that loves to help users. "
+            "You are AICIS情报助手 that loves to help users. "
             "When responding, you may use tools to assist. "
             "Use search_knowledge_base when users ask document/knowledge questions. "
             "Do not call the same tool repeatedly in one turn. At most one knowledge tool call per turn. "

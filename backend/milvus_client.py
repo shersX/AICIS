@@ -15,7 +15,7 @@ class MilvusManager:
         self.collection_name = os.getenv("MILVUS_COLLECTION", "embeddings_collection")
         self.client = MilvusClient(uri=f"http://{self.host}:{self.port}")
 
-    def init_collection(self, dense_dim: int = 2560):
+    def init_collection(self, dense_dim: int = 1024):
         """
         初始化 Milvus 集合 - 同时支持密集向量和稀疏向量
         :param dense_dim: 密集向量维度

@@ -1,16 +1,16 @@
 :root {
-    --primary-color: #ff9e99;
-    --primary-light: #ffb7b2;
-    --secondary-color: #ffdac1;
-    --accent-color: #e2f0cb;
-    --bg-color: #fff5f5;
-    --text-color: #6d6875;
-    --text-light: #a5a5a5;
+    --primary-color: #2d6a4f;
+    --primary-light: #52b788;
+    --secondary-color: #95d5b2;
+    --accent-color: #d8f3dc;
+    --bg-color: #f0f7f4;
+    --text-color: #1b4332;
+    --text-light: #74c69d;
     --white: #ffffff;
-    --sidebar-bg: #fff0f0;
-    --bot-msg-bg: #f0f8ff;
-    --user-msg-bg: #ffb7b2;
-    --shadow: 0 8px 24px rgba(255, 183, 178, 0.2);
+    --sidebar-bg: #e9f5eb;
+    --bot-msg-bg: #d8f3dc;
+    --user-msg-bg: #2d6a4f;
+    --shadow: 0 8px 24px rgba(45, 106, 79, 0.2);
     --border-radius: 20px;
     --transition: all 0.3s ease;
 }
@@ -30,8 +30,8 @@ body {
     justify-content: center;
     align-items: center;
     background-image: 
-        radial-gradient(#ffdac1 2px, transparent 2px),
-        radial-gradient(#e2f0cb 2px, transparent 2px);
+        radial-gradient(#95d5b2 2px, transparent 2px),
+        radial-gradient(#d8f3dc 2px, transparent 2px);
     background-size: 30px 30px;
     background-position: 0 0, 15px 15px;
     overflow: hidden;
@@ -135,8 +135,8 @@ body {
     width: 100%;
     padding: 12px;
     border: none;
-    background-color: #ffe5e5;
-    color: #ff6b6b;
+    background-color: #d8f3dc;
+    color: #2d6a4f;
     border-radius: 15px;
     cursor: pointer;
     font-weight: 600;
@@ -148,7 +148,7 @@ body {
 }
 
 .danger-btn:hover {
-    background-color: #ffcccc;
+    background-color: #95d5b2;
 }
 
 /* Main Content */
@@ -413,7 +413,7 @@ body {
 .input-area:focus-within {
     border-color: var(--primary-light);
     background-color: var(--white);
-    box-shadow: 0 4px 15px rgba(255, 183, 178, 0.15);
+    box-shadow: 0 4px 15px rgba(45, 106, 79, 0.15);
 }
 
 .attach-btn {
@@ -455,12 +455,12 @@ textarea {
     justify-content: center;
     cursor: pointer;
     transition: var(--transition);
-    box-shadow: 0 4px 10px rgba(255, 158, 153, 0.3);
+    box-shadow: 0 4px 10px rgba(45, 106, 79, 0.3);
 }
 
 .send-btn:hover {
     transform: scale(1.1) rotate(-10deg);
-    background-color: #ff8e89;
+    background-color: #40916c;
 }
 
 .footer-text {

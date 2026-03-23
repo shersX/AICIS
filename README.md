@@ -1,4 +1,4 @@
-# SuperMew 项目说明
+# AICIS知识情报助手 项目说明
 
 Agent的项目记录，方便后续持续更新与展示。
 
@@ -95,7 +95,6 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ## 项目概览
 - **核心能力**：
   - LangChain Agent + 自定义工具。
-  - 文档上传后执行三级滑动窗口分块，叶子分块向量化写入 Milvus，父级分块写入本地 DocStore。
   - 会话记忆与摘要，保持长对话上下文。
 - **运行形态**：FastAPI 后端 + 纯前端（Vue 3 CDN 单页）+ Milvus 向量库。
 
