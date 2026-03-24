@@ -4,14 +4,14 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import os
 
-import api as api_module
+import backend.api as api_module
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Cute Cat Bot API")
+    app = FastAPI(title="AICIS API")
 
     app.add_middleware(
         CORSMiddleware,

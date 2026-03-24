@@ -88,20 +88,17 @@
                         <div class="status-dot"></div>
                         <span>AICIS在线中...</span>
                     </div>
-                    <div class="header-actions">
-                        <button class="icon-btn" title="更多"><i class="fas fa-ellipsis-h"></i></button>
-                    </div>
                 </header>
 
                 <div class="chat-container" ref="chatContainer">
-                <div v-if="messages.length === 0" class="welcome-screen">
-                    <div class="big-avatar">🧠</div>
-                    <h3>你好！我是AICIS知识情报助手</h3>
-                    <p>我可以帮你分析情报、回答问题，或者只是陪你聊天~</p>
-                </div>
-                
-                <!-- Messages -->
-                <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.isUser ? 'user-message' : 'bot-message']">
+                    <div v-if="messages.length === 0" class="welcome-screen">
+                        <div class="big-avatar">🧠</div>
+                        <h3>你好！我是AICIS知识情报助手</h3>
+                        <p>我可以帮你分析情报、回答问题，或者只是陪你聊天~</p>
+                    </div>
+
+                    <!-- Messages -->
+                    <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.isUser ? 'user-message' : 'bot-message']">
                     <!-- 思考动画（在气泡内部，RAG 步骤实时填入） -->
                     <div v-if="!msg.isUser && msg.isThinking && !msg.text" class="message-content thinking-content">
                         <div class="thinking-header">
@@ -272,7 +269,6 @@
                     </button>
                 </div>
                 <div class="footer-text">AI 生成的内容可能包含错误，请仔细甄别。</div>
-            </div>
             </div>
             <!-- End of Chat Area -->
         </main>

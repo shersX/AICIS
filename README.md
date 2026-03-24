@@ -17,23 +17,11 @@ Agent的项目记录，方便后续持续更新与展示。
 uv sync
 
 # 运行服务
-uv run python backend/app.py
+uv run python main.py
 # 或
 uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-```bash
-# 方式 B：pip
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e .
-
-# 运行服务
-python backend/app.py
-# 或
-uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
-```
 
 ### 3) 创建 `.env` 文件
 在项目根目录新建 `.env`，可直接使用下面模板：
@@ -84,9 +72,6 @@ docker compose logs -f standalone
 ### 5) 启动应用并访问
 在 Milvus 启动后，运行后端应用：
 
-```bash
-uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
-```
 
 浏览器访问：
 - 前端页面：`http://127.0.0.1:8000/`
@@ -119,12 +104,6 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 
 ### RAG部分
 
-#### 数据层、Chunk分块
-
-1. 先做文档结构解析，按文档结构做粗拆分，再用递归字符分块兜底，保证打的主题单元不被拆分（2000-3000token）；再用语义分块做精细化拆分，控制单块大小（512-1024token）
-2. 代码块、表格、图片特殊处理
-3. 实现 ParentDocument/Auto-merging Retriever 策略 --done
-
 #### 召回层
 
 1. BM25的k1和b新增参数扫描
@@ -137,11 +116,6 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 2. 多文档Refine（一次拼接、串行Refine）
 3. 多文档冲突处理（A文档说X，B文档说非X），回答中显式输出“来源存在冲突”
 
-#### 其他
-
-1. 向量嵌入：新增多模态 embedding 能力
-2. 搭建 RAG 评估体系
-3. Rerank 策略评估（top_k、candidate_k、召回/精排比例）
 
 ### 其他能力拓展
 
@@ -168,9 +142,7 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
   - [agent.py](backend/agent.py)：LangChain Agent、会话存储、摘要逻辑。
   - [tools.py](backend/tools.py)：天气查询、知识库检索工具。
   - [embedding.py](backend/embedding.py)：稠密向量 API 调用 + BM25 稀疏向量生成。
-  - [document_loader.py](backend/document_loader.py)：PDF/Word 加载与分片。
   - [parent_chunk_store.py](backend/parent_chunk_store.py)：父级分块 DocStore（用于 Auto-merging 回取父块）。
-  - [milvus_writer.py](backend/milvus_writer.py)：向量写入（稠密+稀疏）。
   - [milvus_client.py](backend/milvus_client.py)：Milvus 集合定义、混合检索。
   - [schemas.py](backend/schemas.py)：Pydantic 请求/响应模型。
 - 前端：`frontend/`
@@ -217,14 +189,6 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
   - 三级检索与合并信息（`leaf_retrieve_level`、`auto_merge_*`）
   - 检索分数 `score` 与精排分数 `rerank_score`
 
-### 3) 文档入库链路
-1. 前端上传 PDF/Word 到 `POST /documents/upload`。
-2. `document_loader.py` 执行三级滑动窗口分块并写入层级元数据（chunk_id / parent_chunk_id / root_chunk_id / chunk_level）。
-3. L1/L2 父级分块写入 `parent_chunk_store.py`（DocStore）。
-4. L3 叶子分块进入 `embedding.py` 生成 Dense 向量与 BM25 Sparse 向量。
-5. `milvus_writer.py` 仅将叶子块向量 + 元数据写入 Milvus。
-5. 后续检索可直接利用新文档参与召回。
-
 ### 4) 会话记忆链路
 1. 每轮问答按 `user_id/session_id` 写入本地存储。
 2. 当消息过长时触发摘要压缩，保留长期上下文。
@@ -234,7 +198,7 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 - 后端：FastAPI、LangChain Agents、Pydantic、Uvicorn。
 - 向量与检索：Milvus（HNSW 稠密索引 + SPARSE_INVERTED_INDEX 稀疏索引）、RRF 融合、Jina Rerank 精排。
 - 嵌入与稀疏：自定义 API 调用获取稠密向量；BM25 手写稀疏向量；同时输出双塔特征。
-- 前端：Vue 3 (CDN)、marked、highlight.js、纯静态部署。
+- 前端：Vue 3 (CDN)、marked、highlight.js、静态部署。
 - 工具链：dotenv 配置、requests、langchain_text_splitters、langchain_community.loaders。
 
 ## 环境变量
@@ -294,7 +258,7 @@ def emit_rag_step(icon, label):
 ### 2. 混合检索（Hybrid Search）深度实现
 项目并非简单调用 Milvus 接口，而是手动构建了工业级的稀疏-稠密双塔检索：
 
-- **Dense Pathway**: 使用 OpenAI `text-embedding-3-small` 生成 1536 维稠密向量，捕捉语义匹配。
+- **Dense Pathway**: 使用 BAAI `Bge-m3` 生成 1024 维稠密向量，捕捉语义匹配。
 - **Sparse Pathway**:
     - 在 `embedding.py` 中实现了基于 `jieba` 分词的自定义 BM25 算法。
     - 生成 `{word_id: tf_idf_score}` 格式的稀疏向量，模拟 ElasticSearch 的关键词匹配能力。
@@ -408,22 +372,4 @@ StreamingResponse(
 - **实现细节**：采用**主动防御式编程**，显式捕获 `GeneratorExit` 并执行 `agent_task.cancel()`。
 - **为什么不依赖框架自动取消？**：虽然 Starlette/FastAPI 拥有基于 `BaseHTTPMiddleware` 的级联取消机制（Cascading Cancellation），但在复杂的后台任务结构或特定中间件配置下，取消信号可能延迟或在传递链中丢失。显式调用 `.cancel()` 提供了**确定性的资源回收**保证。
 - **即时止损原理**：`agent_task.cancel()` 会立即在任务挂起点注入 `asyncio.CancelledError`。对于流式 LLM 请求，这会触发 `httpx` 关闭 TCP 连接。服务端（OpenAI 等）检测到 client 掉线后会立即停止推理，从而实现**真正的 Token 节省**。
-
-## 更新日志
-
-### 2026-03-13 三级分块与 Auto-merging 升级
-- 新增三级滑动窗口分块（L1/L2/L3），并为分块写入层级元数据。
-- 存储策略调整为 Leaf-only：仅 L3 叶子块写入 Milvus，L1/L2 写入本地 DocStore。
-- Auto-merging 改为从 DocStore 拉取父块，减少向量冗余存储。
-- 思考链路新增三级检索与自动合并步骤事件。
-- `rag_trace` 新增 `leaf_retrieve_level` 与 `auto_merge_*` 字段，且历史会话读取同样保留这些字段。
-
-### 2026-02-19 RAG 实时思考链路修复
-- **问题**：Agent 在执行同步工具（如 `search_knowledge_base`）时，由于运行在线程池中，无法正确获取主线程的 asyncio 事件循环，导致 `emit_rag_step` 事件丢失，前端"思考中"气泡一直静止。
-- **修复**：
-  1. **Backend (`tools.py`)**：在 `set_rag_step_queue` 中显式捕获主线程的 `loop`。
-  2. **Backend (`tools.py`)**：更新 `emit_rag_step` 使用捕获的 `_RAG_STEP_LOOP.call_soon_threadsafe` 跨线程调度事件。
-  3. **Frontend (`script.js`)**：在发送消息时初始化空的 `ragSteps: []` 数组，确保 Vue 响应式系统能立即追踪后续的 push 操作。
-- **效果**：用户提问后，思考气泡内实时跳动显示检索步骤（如"🔍 正在检索知识库..." -> "📊 正在评估文档相关性..."），不再只有静态的"正在思考中..."。
-
 

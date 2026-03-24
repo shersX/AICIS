@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from schemas import (
+from backend.schemas import (
     ChatRequest,
     ChatResponse,
     SessionListResponse,
@@ -14,7 +14,7 @@ from schemas import (
     MessageInfo,
     SessionDeleteResponse,
 )
-from agent import chat_with_agent, chat_with_agent_stream, storage
+from backend.agent import chat_with_agent, chat_with_agent_stream, storage
 
 router = APIRouter()
 
