@@ -24,48 +24,42 @@ class MilvusManager:
     def init_collection(self, dense_dim: int = 1024):
         """
         初始化 Milvus 集合 - 同时支持密集向量和稀疏向量
+        字段定义与实际新闻数据集合一致
         :param dense_dim: 密集向量维度
         """
         if not self.client.has_collection(self.collection_name):
             schema = self.client.create_schema(auto_id=True, enable_dynamic_field=True)
-            
+
             # 主键
             schema.add_field("id", DataType.INT64, is_primary=True, auto_id=True)
-            
-            # 密集向量（来自 embedding 模型）
-            schema.add_field("dense_embedding", DataType.FLOAT_VECTOR, dim=dense_dim)
-            
-            # 稀疏向量（来自 BM25）
-            schema.add_field("sparse_embedding", DataType.SPARSE_FLOAT_VECTOR)
-            
-            # 文本和元数据字段
-            schema.add_field("text", DataType.VARCHAR, max_length=2000)
-            schema.add_field("filename", DataType.VARCHAR, max_length=255)
-            schema.add_field("file_type", DataType.VARCHAR, max_length=50)
-            schema.add_field("file_path", DataType.VARCHAR, max_length=1024)
-            schema.add_field("page_number", DataType.INT64)
-            schema.add_field("chunk_idx", DataType.INT64)
 
-            # Auto-merging 所需层级字段
-            schema.add_field("chunk_id", DataType.VARCHAR, max_length=512)
-            schema.add_field("parent_chunk_id", DataType.VARCHAR, max_length=512)
-            schema.add_field("root_chunk_id", DataType.VARCHAR, max_length=512)
-            schema.add_field("chunk_level", DataType.INT64)
+            # 新闻元数据字段
+            schema.add_field("publish_time", DataType.INT64)
+            schema.add_field("origin_name", DataType.VARCHAR, max_length=255)
+            schema.add_field("title", DataType.VARCHAR, max_length=512)
+            schema.add_field("url", DataType.VARCHAR, max_length=1024)
+            schema.add_field("summary", DataType.VARCHAR, max_length=4000)
+
+            # 密集向量（来自 embedding 模型）
+            schema.add_field("summary_vector", DataType.FLOAT_VECTOR, dim=dense_dim)
+
+            # 稀疏向量（来自 BM25）
+            schema.add_field("summary_sparse_vector", DataType.SPARSE_FLOAT_VECTOR)
 
             # 为两种向量分别创建索引
             index_params = self.client.prepare_index_params()
-            
+
             # 密集向量索引 - 使用 HNSW（更适合混合检索）
             index_params.add_index(
-                field_name="dense_embedding",
+                field_name="summary_vector",
                 index_type="HNSW",
-                metric_type="IP",
+                metric_type="COSINE",
                 params={"M": 16, "efConstruction": 256}
             )
-            
+
             # 稀疏向量索引
             index_params.add_index(
-                field_name="sparse_embedding",
+                field_name="summary_sparse_vector",
                 index_type="SPARSE_INVERTED_INDEX",
                 metric_type="IP",
                 params={"drop_ratio_build": 0.2}
@@ -83,34 +77,12 @@ class MilvusManager:
 
     def query(self, filter_expr: str = "", output_fields: list[str] = None, limit: int = 10000):
         """查询数据"""
+        default_fields = ["id", "publish_time", "origin_name", "title", "url", "summary"]
         return self.client.query(
             collection_name=self.collection_name,
             filter=filter_expr,
-            output_fields=output_fields or ["filename", "file_type"],
+            output_fields=output_fields or default_fields,
             limit=limit
-        )
-
-    def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[dict]:
-        """根据 chunk_id 批量查询分块（用于 Auto-merging 拉取父块）"""
-        ids = [item for item in chunk_ids if item]
-        if not ids:
-            return []
-        quoted_ids = ", ".join([f'"{item}"' for item in ids])
-        filter_expr = f"chunk_id in [{quoted_ids}]"
-        return self.query(
-            filter_expr=filter_expr,
-            output_fields=[
-                "text",
-                "filename",
-                "file_type",
-                "page_number",
-                "chunk_id",
-                "parent_chunk_id",
-                "root_chunk_id",
-                "chunk_level",
-                "chunk_idx",
-            ],
-            limit=len(ids),
         )
 
     def hybrid_retrieve(
