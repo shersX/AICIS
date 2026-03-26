@@ -12,8 +12,14 @@ class MilvusManager:
     def __init__(self):
         self.host = os.getenv("MILVUS_HOST", "localhost")
         self.port = os.getenv("MILVUS_PORT", "19530")
-        self.collection_name = os.getenv("MILVUS_COLLECTION", "embeddings_collection")
+        self.database = os.getenv("MILVUS_DATABASE", "rag_sum_col")
+        self.collection_name = os.getenv("MILVUS_COLLECTION", "rag_summary")
         self.client = MilvusClient(uri=f"http://{self.host}:{self.port}")
+        
+        databases = self.client.list_databases()
+        if self.database not in databases:
+            self.client.create_database(self.database)
+        self.client.use_database(self.database)
 
     def init_collection(self, dense_dim: int = 1024):
         """
@@ -112,7 +118,7 @@ class MilvusManager:
         dense_embedding: list[float],
         sparse_embedding: dict,
         top_k: int = 5,
-        rrf_k: int = 60,     #可调节
+        rrf_k: int = 60,
         filter_expr: str = "",
     ) -> list[dict]:
         """
@@ -125,38 +131,33 @@ class MilvusManager:
         :return: 检索结果列表
         """
         output_fields = [
-            "text",
-            "filename",
-            "file_type",
-            "page_number",
-            "chunk_id",
-            "parent_chunk_id",
-            "root_chunk_id",
-            "chunk_level",
-            "chunk_idx",
+            "id",
+            "summary",
+            "title",
+            "origin_name",
+            "url",
+            "publish_time",
         ]
         
-        # 密集向量搜索请求
         dense_search = AnnSearchRequest(
             data=[dense_embedding],
-            anns_field="dense_embedding",
-            param={"metric_type": "IP", "params": {"ef": 64}},
-            limit=top_k * 2,  # 多取一些用于融合
+            anns_field="summary_vector",
+            param={"metric_type": "COSINE", "params": {"ef": 64}},
+            limit=top_k * 2,
             expr=filter_expr,
         )
         
-        # 稀疏向量搜索请求
         sparse_search = AnnSearchRequest(
             data=[sparse_embedding],
-            anns_field="sparse_embedding",
+            anns_field="summary_sparse_vector",
             param={"metric_type": "IP", "params": {"drop_ratio_search": 0.2}},
             limit=top_k * 2,
             expr=filter_expr,
         )
         
-        # 使用 RRF 排序算法融合结果
         reranker = RRFRanker(k=rrf_k)
         
+        print(f"[MILVUS] hybrid_search: collection={self.collection_name}, database={self.database}")
         results = self.client.hybrid_search(
             collection_name=self.collection_name,
             reqs=[dense_search, sparse_search],
@@ -164,22 +165,18 @@ class MilvusManager:
             limit=top_k,
             output_fields=output_fields
         )
+        print(f"[MILVUS] hybrid_search 返回: {len(results)} 组")
         
-        # 格式化返回结果
         formatted_results = []
         for hits in results:
             for hit in hits:
                 formatted_results.append({
                     "id": hit.get("id"),
-                    "text": hit.get("text", ""),
-                    "filename": hit.get("filename", ""),
-                    "file_type": hit.get("file_type", ""),
-                    "page_number": hit.get("page_number", 0),
-                    "chunk_id": hit.get("chunk_id", ""),
-                    "parent_chunk_id": hit.get("parent_chunk_id", ""),
-                    "root_chunk_id": hit.get("root_chunk_id", ""),
-                    "chunk_level": hit.get("chunk_level", 0),
-                    "chunk_idx": hit.get("chunk_idx", 0),
+                    "summary": hit.get("summary", ""),
+                    "title": hit.get("title", ""),
+                    "origin_name": hit.get("origin_name", ""),
+                    "url": hit.get("url", ""),
+                    "publish_time": hit.get("publish_time", 0),
                     "score": hit.get("distance", 0.0)
                 })
         
@@ -189,40 +186,35 @@ class MilvusManager:
         """
         仅使用密集向量检索（降级模式，用于稀疏向量不可用时）
         """
+        print(f"[MILVUS] dense_retrieve: collection={self.collection_name}, database={self.database}, top_k={top_k}")
         results = self.client.search(
             collection_name=self.collection_name,
             data=[dense_embedding],
-            anns_field="dense_embedding",
-            search_params={"metric_type": "IP", "params": {"ef": 64}},
+            anns_field="summary_vector",
+            search_params={"metric_type": "COSINE", "params": {"ef": 64}},
             limit=top_k,
             output_fields=[
-                "text",
-                "filename",
-                "file_type",
-                "page_number",
-                "chunk_id",
-                "parent_chunk_id",
-                "root_chunk_id",
-                "chunk_level",
-                "chunk_idx",
+                "id",
+                "summary",
+                "title",
+                "origin_name",
+                "url",
+                "publish_time",
             ],
             filter=filter_expr,
         )
+        print(f"[MILVUS] dense_retrieve 返回: {len(results)} 组")
         
         formatted_results = []
         for hits in results:
             for hit in hits:
                 formatted_results.append({
                     "id": hit.get("id"),
-                    "text": hit.get("entity", {}).get("text", ""),
-                    "filename": hit.get("entity", {}).get("filename", ""),
-                    "file_type": hit.get("entity", {}).get("file_type", ""),
-                    "page_number": hit.get("entity", {}).get("page_number", 0),
-                    "chunk_id": hit.get("entity", {}).get("chunk_id", ""),
-                    "parent_chunk_id": hit.get("entity", {}).get("parent_chunk_id", ""),
-                    "root_chunk_id": hit.get("entity", {}).get("root_chunk_id", ""),
-                    "chunk_level": hit.get("entity", {}).get("chunk_level", 0),
-                    "chunk_idx": hit.get("entity", {}).get("chunk_idx", 0),
+                    "summary": hit.get("entity", {}).get("summary", ""),
+                    "title": hit.get("entity", {}).get("title", ""),
+                    "origin_name": hit.get("entity", {}).get("origin_name", ""),
+                    "url": hit.get("entity", {}).get("url", ""),
+                    "publish_time": hit.get("entity", {}).get("publish_time", 0),
                     "score": hit.get("distance", 0.0)
                 })
         

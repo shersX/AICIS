@@ -133,12 +133,14 @@ def _rerank_documents(query: str, docs: List[dict], top_k: int) -> Tuple[List[di
     }
     try:
         meta["rerank_applied"] = True
+        print(f"[RERANK] 请求 payload: model={RERANK_MODEL}, query={query}, docs_count={len(docs_with_rank)}")
         response = requests.post(
             meta["rerank_endpoint"],
             headers=headers,
             json=payload,
             timeout=15,
         )
+        print(f"[RERANK] 响应状态: {response.status_code}, body: {response.text[:200]}")
         if response.status_code >= 400:
             meta["rerank_error"] = f"HTTP {response.status_code}: {response.text}"
             return docs_with_rank[:top_k], meta
@@ -243,44 +245,67 @@ def step_back_expand(query: str) -> dict:
     }
 
 
+def _format_news_docs(docs: List[dict]) -> List[dict]:
+    """将新闻数据格式化为统一的文档格式"""
+    formatted = []
+    for doc in docs:
+        formatted.append({
+            "id": doc.get("id", ""),
+            "text": doc.get("summary", ""),
+            "filename": doc.get("origin_name", ""),
+            "title": doc.get("title", ""),
+            "url": doc.get("url", ""),
+            "publish_time": doc.get("publish_time", 0),
+            "score": doc.get("score", 0.0),
+            "rrf_rank": doc.get("rrf_rank"),
+            "rerank_score": doc.get("rerank_score"),
+        })
+    return formatted
+
+
 def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
     candidate_k = max(top_k * 3, top_k)
-    filter_expr = f"chunk_level == {LEAF_RETRIEVE_LEVEL}"
+    print(f"[RETRIEVE] 开始检索, query={query}, top_k={top_k}")
     try:
+        print(f"[RETRIEVE] 1. 获取 embedding...")
         dense_embeddings = _embedding_service.get_embeddings([query])
         dense_embedding = dense_embeddings[0]
+        print(f"[RETRIEVE] 2. 获取 sparse embedding...")
         sparse_embedding = _embedding_service.get_sparse_embedding(query)
 
+        print(f"[RETRIEVE] 3. Milvus 混合检索, candidate_k={candidate_k}")
         retrieved = _milvus_manager.hybrid_retrieve(
             dense_embedding=dense_embedding,
             sparse_embedding=sparse_embedding,
             top_k=candidate_k,
-            filter_expr=filter_expr,
+            filter_expr="",
         )
+        print(f"[RETRIEVE] 4. Milvus 返回 {len(retrieved)} 条结果")
+        retrieved = _format_news_docs(retrieved)
+        print(f"[RETRIEVE] 5. 开始 rerank...")
         reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
-        merged_docs, merge_meta = _auto_merge_documents(docs=reranked, top_k=top_k)
         rerank_meta["retrieval_mode"] = "hybrid"
         rerank_meta["candidate_k"] = candidate_k
-        rerank_meta["leaf_retrieve_level"] = LEAF_RETRIEVE_LEVEL
-        rerank_meta.update(merge_meta)
-        return {"docs": merged_docs, "meta": rerank_meta}
-    except Exception:
+        print(f"[RETRIEVE] 6. 完成, 返回 {len(reranked)} 条")
+        return {"docs": reranked, "meta": rerank_meta}
+    except Exception as e:
+        print(f"[RETRIEVE] 混合检索失败: {e}, 尝试降级到 dense...")
         try:
             dense_embeddings = _embedding_service.get_embeddings([query])
             dense_embedding = dense_embeddings[0]
             retrieved = _milvus_manager.dense_retrieve(
                 dense_embedding=dense_embedding,
                 top_k=candidate_k,
-                filter_expr=filter_expr,
+                filter_expr="",
             )
+            print(f"[RETRIEVE] Dense 返回 {len(retrieved)} 条")
+            retrieved = _format_news_docs(retrieved)
             reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
-            merged_docs, merge_meta = _auto_merge_documents(docs=reranked, top_k=top_k)
             rerank_meta["retrieval_mode"] = "dense_fallback"
             rerank_meta["candidate_k"] = candidate_k
-            rerank_meta["leaf_retrieve_level"] = LEAF_RETRIEVE_LEVEL
-            rerank_meta.update(merge_meta)
-            return {"docs": merged_docs, "meta": rerank_meta}
-        except Exception:
+            return {"docs": reranked, "meta": rerank_meta}
+        except Exception as e2:
+            print(f"[RETRIEVE] Dense 也失败: {e2}")
             return {
                 "docs": [],
                 "meta": {
@@ -291,7 +316,6 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
                     "rerank_error": "retrieve_failed",
                     "retrieval_mode": "failed",
                     "candidate_k": candidate_k,
-                    "leaf_retrieve_level": LEAF_RETRIEVE_LEVEL,
                     "auto_merge_enabled": AUTO_MERGE_ENABLED,
                     "auto_merge_applied": False,
                     "auto_merge_threshold": AUTO_MERGE_THRESHOLD,

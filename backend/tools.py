@@ -135,7 +135,7 @@ def search_knowledge_base(query: str) -> str:
         )
     _KNOWLEDGE_TOOL_CALLS_THIS_TURN += 1
 
-    from rag_pipeline import run_rag_graph
+    from backend.rag_pipeline import run_rag_graph
 
     # 在同步工具中获取当前的 Loop 可能不可靠，但我们之前是通过 call_soon_threadsafe 调度的。
     # 这里 _RAG_STEP_QUEUE 是在主线程/Loop 设置的全局变量。
@@ -157,9 +157,16 @@ def search_knowledge_base(query: str) -> str:
 
     formatted = []
     for i, result in enumerate(docs, 1):
-        source = result.get("filename", "Unknown")
-        page = result.get("page_number", "N/A")
-        text = result.get("text", "")
-        formatted.append(f"[{i}] {source} (Page {page}):\n{text}")
+        title = result.get("title", "无标题")
+        source = result.get("origin_name", result.get("filename", "Unknown"))
+        summary = result.get("text", result.get("summary", ""))
+        url = result.get("url", "")
+        
+        item = f"[{i}] {title}\n来源: {source}"
+        if url:
+            item += f"\n链接: {url}"
+        if summary:
+            item += f"\n摘要: {summary}"
+        formatted.append(item)
 
-    return "Retrieved Chunks:\n" + "\n\n---\n\n".join(formatted)
+    return "Retrieved News:\n" + "\n\n---\n\n".join(formatted)

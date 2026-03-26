@@ -13,7 +13,7 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
-GRADE_MODEL = os.getenv("GRADE_MODEL", "gpt-4.1")
+GRADE_MODEL = os.getenv("GRADE_MODEL", "deepseek-ai/DeepSeek-V3.2")
 
 _grader_model = None
 _router_model = None
@@ -93,38 +93,33 @@ def _format_docs(docs: List[dict]) -> str:
         return ""
     chunks = []
     for i, doc in enumerate(docs, 1):
-        source = doc.get("filename", "Unknown")
-        page = doc.get("page_number", "N/A")
-        text = doc.get("text", "")
-        chunks.append(f"[{i}] {source} (Page {page}):\n{text}")
+        title = doc.get("title", "无标题")
+        source = doc.get("origin_name", doc.get("filename", "Unknown"))
+        text = doc.get("text", doc.get("summary", ""))
+        url = doc.get("url", "")
+        
+        item = f"[{i}] {title}\n来源: {source}"
+        if url:
+            item += f"\n链接: {url}"
+        if text:
+            item += f"\n摘要: {text}"
+        chunks.append(item)
     return "\n\n---\n\n".join(chunks)
 
 
 def retrieve_initial(state: RAGState) -> RAGState:
     query = state["question"]
-    emit_rag_step("🔍", "正在检索知识库...", f"查询: {query[:50]}")
+    emit_rag_step("🔍", "正在检索新闻知识库...", f"查询: {query[:50]}")
     retrieved = retrieve_documents(query, top_k=5)
     results = retrieved.get("docs", [])
     retrieve_meta = retrieved.get("meta", {})
     context = _format_docs(results)
     emit_rag_step(
-        "🧱",
-        "三级分块检索",
-        (
-            f"叶子层 L{retrieve_meta.get('leaf_retrieve_level', 3)} 召回，"
-            f"候选 {retrieve_meta.get('candidate_k', 0)}"
-        ),
+        "📰",
+        "新闻检索",
+        f"候选 {retrieve_meta.get('candidate_k', 0)}"
     )
-    emit_rag_step(
-        "🧩",
-        "Auto-merging 合并",
-        (
-            f"启用: {bool(retrieve_meta.get('auto_merge_enabled'))}，"
-            f"应用: {bool(retrieve_meta.get('auto_merge_applied'))}，"
-            f"替换片段: {retrieve_meta.get('auto_merge_replaced_chunks', 0)}"
-        ),
-    )
-    emit_rag_step("✅", f"检索完成，找到 {len(results)} 个片段", f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}")
+    emit_rag_step("✅", f"检索完成，找到 {len(results)} 条新闻", f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}")
     rag_trace = {
         "tool_used": True,
         "tool_name": "search_knowledge_base",
@@ -140,12 +135,6 @@ def retrieve_initial(state: RAGState) -> RAGState:
         "rerank_error": retrieve_meta.get("rerank_error"),
         "retrieval_mode": retrieve_meta.get("retrieval_mode"),
         "candidate_k": retrieve_meta.get("candidate_k"),
-        "leaf_retrieve_level": retrieve_meta.get("leaf_retrieve_level"),
-        "auto_merge_enabled": retrieve_meta.get("auto_merge_enabled"),
-        "auto_merge_applied": retrieve_meta.get("auto_merge_applied"),
-        "auto_merge_threshold": retrieve_meta.get("auto_merge_threshold"),
-        "auto_merge_replaced_chunks": retrieve_meta.get("auto_merge_replaced_chunks"),
-        "auto_merge_steps": retrieve_meta.get("auto_merge_steps"),
     }
     return {
         "query": query,

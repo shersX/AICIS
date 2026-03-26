@@ -1,0 +1,33 @@
+
+import os
+import requests
+from dotenv import load_dotenv
+load_dotenv()
+
+api_key = os.getenv('ARK_API_KEY')
+base_url = os.getenv('BASE_URL')
+embedder = os.getenv('EMBEDDER')
+
+print('API Key:', api_key[:15] + '...')
+print('Base URL:', base_url)
+print('Embedder:', embedder)
+
+headers = {
+    'Authorization': f'Bearer {api_key}',
+    'Content-Type': 'application/json'
+}
+data = {
+    'model': embedder,
+    'input': ['测试'],
+    'encoding_format': 'float'
+}
+
+# 先检查模型是否存在
+resp = requests.get(f'{base_url}/models', headers={'Authorization': f'Bearer {api_key}'}, timeout=30)
+models = [m['id'] for m in resp.json()['data']]
+print('bge-m3 in models:', 'BAAI/bge-m3' in models)
+
+# 尝试调用 embedding
+resp = requests.post(f'{base_url}/embeddings', headers=headers, json=data, timeout=30)
+print('Status:', resp.status_code)
+print('Response:', resp.text[:300])

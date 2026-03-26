@@ -25,6 +25,8 @@ dependencies = [
     "openpyxl",
     "tabulate",
     "msoffcrypto-tool",
+    "chromadb>=0.5.5",
+    "pymongo>=4.6.0",
 ]
 
 [project.optional-dependencies]
