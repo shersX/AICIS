@@ -214,6 +214,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     架构：使用统一输出队列 + 后台任务，确保 RAG 检索步骤在工具执行期间实时推送，
     而非等待工具完成后才显示。
     """
+    import sys
+    print(f"[AGENT_STREAM] 开始处理: user_text={user_text[:50]}...", file=sys.stderr)
     messages = storage.load(user_id, session_id)
 
     # 清理可能残留的 RAG 上下文
@@ -243,7 +245,9 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     async def _agent_worker():
         """后台任务：运行 agent 并将内容 chunk 推入输出队列。"""
         nonlocal full_response
+        import sys
         try:
+            print(f"[AGENT_WORKER] 开始执行 agent", file=sys.stderr)
             async for msg, metadata in agent.astream(
                 {"messages": messages},
                 stream_mode="messages",
@@ -268,8 +272,12 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
                     full_response += content
                     await output_queue.put({"type": "content", "content": content})
         except Exception as e:
+            print(f"[AGENT_WORKER] 异常: {type(e).__name__}: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             await output_queue.put({"type": "error", "content": str(e)})
         finally:
+            print(f"[AGENT_WORKER] 完成", file=sys.stderr)
             # 哨兵：通知主循环 agent 已完成
             await output_queue.put(None)
 
@@ -280,10 +288,17 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         # 主循环：持续从统一队列取事件并 yield SSE
         # RAG 步骤在工具执行期间通过 call_soon_threadsafe 实时入队，不需要等 agent 产出 chunk
         while True:
-            event = await output_queue.get()
+            try:
+                event = await asyncio.wait_for(output_queue.get(), timeout=60)
+            except asyncio.TimeoutError:
+                continue
             if event is None:
                 break
-            yield f"data: {json.dumps(event)}\n\n"
+            try:
+                yield f"data: {json.dumps(event)}\n\n"
+            except Exception as e:
+                print(f"[AGENT_STREAM] yield 错误: {e}", file=sys.stderr)
+                break
     except GeneratorExit:
         # 客户端断开连接（AbortController）时，FastAPI 会向此生成器抛出 GeneratorExit
         # 我们必须在此处取消后台任务

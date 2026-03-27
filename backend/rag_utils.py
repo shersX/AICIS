@@ -58,6 +58,7 @@ def _rerank_documents(query: str, docs: List[dict], top_k: int) -> Tuple[List[di
     }
     try:
         meta["rerank_applied"] = True
+        print(f"[RERANK] 请求 endpoint: {meta['rerank_endpoint']}")
         print(f"[RERANK] 请求 payload: model={RERANK_MODEL}, query={query}, docs_count={len(docs_with_rank)}")
         response = requests.post(
             meta["rerank_endpoint"],
@@ -65,7 +66,14 @@ def _rerank_documents(query: str, docs: List[dict], top_k: int) -> Tuple[List[di
             json=payload,
             timeout=15,
         )
-        print(f"[RERANK] 响应状态: {response.status_code}, body: {response.text[:200]}")
+        print(f"[RERANK] 响应状态: {response.status_code}, body: {response.text[:500]}")
+        
+        try:
+            items = response.json().get("results", [])
+        except json.JSONDecodeError as je:
+            print(f"[RERANK] JSON 解析失败: {je}, response text: {response.text[:200]}")
+            meta["rerank_error"] = f"json_decode_failed: {response.text[:100]}"
+            return docs_with_rank[:top_k], meta
         if response.status_code >= 400:
             meta["rerank_error"] = f"HTTP {response.status_code}: {response.text}"
             return docs_with_rank[:top_k], meta
@@ -189,32 +197,33 @@ def _format_news_docs(docs: List[dict]) -> List[dict]:
 
 
 def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
+    import sys
     candidate_k = max(top_k * 3, top_k)
-    print(f"[RETRIEVE] 开始检索, query={query}, top_k={top_k}")
+    print(f"[RETRIEVE] 开始检索, query={query}, top_k={top_k}", file=sys.stderr)
     try:
-        print(f"[RETRIEVE] 1. 获取 embedding...")
+        print(f"[RETRIEVE] 1. 获取 embedding...", file=sys.stderr)
         dense_embeddings = _embedding_service.get_embeddings([query])
         dense_embedding = dense_embeddings[0]
-        print(f"[RETRIEVE] 2. 获取 sparse embedding...")
+        print(f"[RETRIEVE] 2. 获取 sparse embedding...", file=sys.stderr)
         sparse_embedding = _embedding_service.get_sparse_embedding(query)
 
-        print(f"[RETRIEVE] 3. Milvus 混合检索, candidate_k={candidate_k}")
+        print(f"[RETRIEVE] 3. Milvus 混合检索, candidate_k={candidate_k}", file=sys.stderr)
         retrieved = _milvus_manager.hybrid_retrieve(
             dense_embedding=dense_embedding,
             sparse_embedding=sparse_embedding,
             top_k=candidate_k,
             filter_expr="",
         )
-        print(f"[RETRIEVE] 4. Milvus 返回 {len(retrieved)} 条结果")
+        print(f"[RETRIEVE] 4. Milvus 返回 {len(retrieved)} 条结果", file=sys.stderr)
         retrieved = _format_news_docs(retrieved)
-        print(f"[RETRIEVE] 5. 开始 rerank...")
+        print(f"[RETRIEVE] 5. 开始 rerank...", file=sys.stderr)
         reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
         rerank_meta["retrieval_mode"] = "hybrid"
         rerank_meta["candidate_k"] = candidate_k
-        print(f"[RETRIEVE] 6. 完成, 返回 {len(reranked)} 条")
+        print(f"[RETRIEVE] 6. 完成, 返回 {len(reranked)} 条", file=sys.stderr)
         return {"docs": reranked, "meta": rerank_meta}
     except Exception as e:
-        print(f"[RETRIEVE] 混合检索失败: {e}, 尝试降级到 dense...")
+        print(f"[RETRIEVE] 混合检索失败: {e}, 尝试降级到 dense...", file=sys.stderr)
         try:
             dense_embeddings = _embedding_service.get_embeddings([query])
             dense_embedding = dense_embeddings[0]
@@ -223,14 +232,14 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
                 top_k=candidate_k,
                 filter_expr="",
             )
-            print(f"[RETRIEVE] Dense 返回 {len(retrieved)} 条")
+            print(f"[RETRIEVE] Dense 返回 {len(retrieved)} 条", file=sys.stderr)
             retrieved = _format_news_docs(retrieved)
             reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
             rerank_meta["retrieval_mode"] = "dense_fallback"
             rerank_meta["candidate_k"] = candidate_k
             return {"docs": reranked, "meta": rerank_meta}
         except Exception as e2:
-            print(f"[RETRIEVE] Dense 也失败: {e2}")
+            print(f"[RETRIEVE] Dense 也失败: {e2}", file=sys.stderr)
             return {
                 "docs": [],
                 "meta": {

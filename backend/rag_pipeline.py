@@ -13,7 +13,7 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
-GRADE_MODEL = os.getenv("GRADE_MODEL", "deepseek-ai/DeepSeek-V3.2")
+GRADE_MODEL = os.getenv("GRADE_MODEL", "Pro/zai-org/GLM-5")
 
 _grader_model = None
 _router_model = None
@@ -108,6 +108,8 @@ def _format_docs(docs: List[dict]) -> str:
 
 
 def retrieve_initial(state: RAGState) -> RAGState:
+    import sys
+    print(f"[RAG_PIPELINE] retrieve_initial 开始, question={state['question']}", file=sys.stderr)
     query = state["question"]
     emit_rag_step("🔍", "正在检索新闻知识库...", f"查询: {query[:50]}")
     retrieved = retrieve_documents(query, top_k=5)
@@ -145,9 +147,12 @@ def retrieve_initial(state: RAGState) -> RAGState:
 
 
 def grade_documents_node(state: RAGState) -> RAGState:
+    import sys
+    print(f"[RAG_PIPELINE] grade_documents_node 开始", file=sys.stderr)
     grader = _get_grader_model()
     emit_rag_step("📊", "正在评估文档相关性...")
     if not grader:
+        print(f"[RAG_PIPELINE] grade_documents_node: grader 为 None", file=sys.stderr)
         grade_update = {
             "grade_score": "unknown",
             "grade_route": "rewrite_question",
@@ -159,10 +164,40 @@ def grade_documents_node(state: RAGState) -> RAGState:
     question = state["question"]
     context = state.get("context", "")
     prompt = GRADE_PROMPT.format(question=question, context=context)
-    response = grader.with_structured_output(GradeDocuments).invoke(
-        [{"role": "user", "content": prompt}]
-    )
-    score = (response.binary_score or "").strip().lower()
+    print(f"[RAG_PIPELINE] grade_documents_node: 调用 grader, prompt长度={len(prompt)}", file=sys.stderr)
+    try:
+        # 暂时移除 structured_output，查看原始响应
+        raw_response = grader.invoke([{"role": "user", "content": prompt}])
+        
+        print(f"[RAG_PIPELINE] grader 当前模型：{grader.model_name}， 原始响应 type={type(raw_response)}, content={repr(raw_response.content)}", file=sys.stderr)
+        
+        # 尝试解析文本响应
+        text = raw_response.content.lower().strip()
+        if "yes" in text and "no" not in text[:10]:
+            score = "yes"
+        elif "no" in text and "yes" not in text[:10]:
+            score = "no"
+        else:
+            # 尝试提取 yes/no
+            import re
+            match = re.search(r'\b(yes|no)\b', text)
+            score = match.group(1) if match else "no"
+        
+        print(f"[RAG_PIPELINE] 解析后 score={score}", file=sys.stderr)
+    except Exception as e:
+        print(f"[RAG_PIPELINE] grade_documents_node 异常: {type(e).__name__}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        grade_update = {
+            "grade_score": "error",
+            "grade_route": "rewrite_question",
+            "rewrite_needed": True,
+            "grade_error": str(e),
+        }
+        rag_trace = state.get("rag_trace", {}) or {}
+        rag_trace.update(grade_update)
+        return {"route": "rewrite_question", "rag_trace": rag_trace}
+    # score 已在上面解析完成
     route = "generate_answer" if score == "yes" else "rewrite_question"
     if route == "generate_answer":
         emit_rag_step("✅", "文档相关性评估通过", f"评分: {score}")
@@ -175,10 +210,12 @@ def grade_documents_node(state: RAGState) -> RAGState:
     }
     rag_trace = state.get("rag_trace", {}) or {}
     rag_trace.update(grade_update)
+    print(f"[RAG_PIPELINE] grade_documents_node 完成, score={score}, route={route}", file=sys.stderr)
     return {"route": route, "rag_trace": rag_trace}
 
 
 def rewrite_question_node(state: RAGState) -> RAGState:
+    import sys
     question = state["question"]
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()
@@ -192,11 +229,18 @@ def rewrite_question_node(state: RAGState) -> RAGState:
             f"用户问题：{question}"
         )
         try:
-            decision = router.with_structured_output(RewriteStrategy).invoke(
-                [{"role": "user", "content": prompt}]
-            )
-            strategy = decision.strategy
-        except Exception:
+            # 暂时移除 structured_output，查看原始响应
+            raw_response = router.invoke([{"role": "user", "content": prompt}])
+            print(f"[RAG_PIPELINE] router 原始响应: {repr(raw_response.content)}", file=sys.stderr)
+
+            # 解析策略
+            text = raw_response.content.lower().strip()
+            import re
+            match = re.search(r'\b(step_back|hyde|complex)\b', text)
+            strategy = match.group(1) if match else "step_back"
+            print(f"[RAG_PIPELINE] 解析后 strategy={strategy}", file=sys.stderr)
+        except Exception as e:
+            print(f"[RAG_PIPELINE] router 异常: {e}", file=sys.stderr)
             strategy = "step_back"
 
     expanded_query = question

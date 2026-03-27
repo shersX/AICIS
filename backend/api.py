@@ -108,18 +108,20 @@ async def chat_endpoint(request: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream_endpoint(request: ChatRequest):
     """跟 Agent 对话 (流式)"""
+    import sys
     async def event_generator():
         try:
-            # chat_with_agent_stream 已经生成了 SSE 格式的字符串 (data: {...}\n\n)
             async for chunk in chat_with_agent_stream(
-                request.message, 
-                request.user_id, 
+                request.message,
+                request.user_id,
                 request.session_id
             ):
                 yield chunk
         except Exception as e:
+            print(f"[CHAT_STREAM] 生成器异常: {type(e).__name__}: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             error_data = {"type": "error", "content": str(e)}
-            # SSE 格式错误
             yield f"data: {json.dumps(error_data)}\n\n"
 
     return StreamingResponse(

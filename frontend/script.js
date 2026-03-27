@@ -210,7 +210,7 @@ createApp({
         },
         
         handleClearChat() {
-            if (confirm('确定要清空当前对话吗？喵？')) {
+            if (confirm('确定要清空当前对话吗？')) {
                 this.messages = [];
             }
         },
