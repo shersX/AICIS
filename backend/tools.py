@@ -164,7 +164,7 @@ def search_knowledge_base(query: str) -> str:
         
         item = f"[{i}] {title}\n来源: {source}"
         if url:
-            item += f"\n链接: {url}"
+            item += f"\n🔗 [{title}]({url})"
         if summary:
             item += f"\n摘要: {summary}"
         formatted.append(item)

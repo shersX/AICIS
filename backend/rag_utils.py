@@ -5,7 +5,7 @@ import requests
 from dotenv import load_dotenv
 
 from backend.milvus_client import MilvusManager
-from backend.embedding import EmbeddingService
+from backend.embedding import SiliconFlowEmbedding
 from langchain.chat_models import init_chat_model
 
 load_dotenv()
@@ -18,7 +18,7 @@ RERANK_BINDING_HOST = os.getenv("RERANK_BINDING_HOST")
 RERANK_API_KEY = os.getenv("RERANK_API_KEY")
 
 # 全局初始化检索依赖，避免反复构造
-_embedding_service = EmbeddingService()
+_embedding_service = SiliconFlowEmbedding()
 _milvus_manager = MilvusManager()
 
 _stepback_model = None
