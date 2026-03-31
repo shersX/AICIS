@@ -1,51 +1,83 @@
+import jieba
 
-# import os
-# import requests
-# from dotenv import load_dotenv
-# load_dotenv()
+# 1. 定义一个简单的停用词表 (实际项目中通常从文件读取)
+STOPWORDS = {
+    "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个",
+    "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好",
+    "自己", "这", "那", "里", "出", "来", "时", "给", "着", "地", "得", "和", "或",
+    # 英文停用词
+    "the", "is", "are", "and", "of", "a", "in", "to", "it", "for", "on", "with", "as"
+}
 
-# api_key = os.getenv('ARK_API_KEY')
-# base_url = os.getenv('BASE_URL')
-# embedder = os.getenv('EMBEDDER')
-
-# print('API Key:', api_key[:15] + '...')
-# print('Base URL:', base_url)
-# print('Embedder:', embedder)
-
-# headers = {
-#     'Authorization': f'Bearer {api_key}',
-#     'Content-Type': 'application/json'
-# }
-# data = {
-#     'model': embedder,
-#     'input': ['测试'],
-#     'encoding_format': 'float'
-# }
-
-# # 先检查模型是否存在
-# resp = requests.get(f'{base_url}/models', headers={'Authorization': f'Bearer {api_key}'}, timeout=30)
-# models = [m['id'] for m in resp.json()['data']]
-# print('bge-m3 in models:', 'BAAI/bge-m3' in models)
-
-# # 尝试调用 embedding
-# resp = requests.post(f'{base_url}/embeddings', headers=headers, json=data, timeout=30)
-# print('Status:', resp.status_code)
-# print('Response:', resp.text[:300])
-
-
-
-# 简易退休计算器逻辑
-def retirement_calculator(age_now, annual_expense, inflation, current_savings, return_rate):
-    years_to_retire = 35 - age_now  # 假设60岁退休
-    future_expense = annual_expense * (1 + inflation) ** years_to_retire
-    required_capital = future_expense / 0.04  # 4%法则
-    gap = required_capital - current_savings * (1 + return_rate) ** years_to_retire
+def tokenize_simple(text: str) -> list[str]:
+    """
+    极简版分词器：利用 jieba 原生能力处理中英文混合
+    """
+    if not text:
+        return []
     
-    if gap <= 0:
-        return "已具备退休条件！"
-    else:
-        return f"需年储蓄：{gap / years_to_retire:.2f}万元"
+    # 1. 统一转小写
+    text = text.lower()
+    
+    # 2. 使用 jieba 进行分词
+    # jieba.lcut 直接返回一个列表
+    words = jieba.lcut(text)
+    
+    tokens = []
+    for word in words:
+        # 去除首尾空格
+        word = word.strip()
+        
+        # 过滤逻辑：
+        # 1. 长度大于 1 (过滤掉单字，如 'a', '的', '1')
+        # 2. 不在停用词表中
+        if len(word) > 1 and word not in STOPWORDS:
+            tokens.append(word)
+            
+    return tokens
 
-# 示例：35岁年花20万，通胀3%，现有200万，收益5%
-print(retirement_calculator(30, 3, 0.03, 50, 0.10)) 
-# 输出：需年储蓄18.3万元
+# ==========================================
+# 运行测试
+# ==========================================
+if __name__ == "__main__":
+    # 测试文本 1：中英文混合
+    text1 = "Python 是一门非常棒的编程语言，它简单易学。I love coding in Python!"
+    
+    # 测试文本 2：包含数字和特殊符号
+    text2 = "iPhone 15 Pro Max 的价格是 $999，性价比很高。"
+    
+    # 测试文本 3：纯中文
+    #text3 = "人工智能和机器学习正在改变世界。"
+    text3="""
+    肿瘤：
+1.Osemitamab (TST001)​​：靶向Claudin 18.2的单抗，作为一线疗法联合PD1化疗用于胃癌/胃食管连接部（G/GEJ）癌，已进展至关键Ⅲ期临床阶段。作为一线疗法联合化疗用于胃癌/胃食管连接部（G/GEJ）癌，已进展至Ⅱ期临床阶段。作为一线疗法联合化疗用于胰腺癌，已进展至Ⅰ期临床阶段。其全球权利由公司内部持有。
+2.TST003​：全球首创(FIC)靶向Gremlin-1的单抗，适应症为实体瘤，单药使用，目前进入临床Ⅱ期阶段。公司内部持有全球权利。
+3.TST006​：靶向Claudin 18.2和PD-L1的双特异性抗体，用于治疗实体瘤，单药使用，目前处于临床前阶段。公司内部持有全球权利。
+4.TST010​：靶点尚未公开披露的单克隆抗体药物，适应症为实体瘤，单药使用，处于临床前阶段。公司内部持有全球权利。
+5.TST105​​：靶向FGFR2b的双特异性抗体ADC，用于治疗实体瘤，单药使用，处于临床前阶段。公司内部持有全球权利。
+6.TST012​：靶向FGFR2b的ADC，适应症为实体瘤，单药使用，处于临床前阶段。公司内部持有全球权利。
+7.TST013​：靶向LIV-1的ADC，适应症为实体瘤，单药使用，处于临床前阶段。公司内部持有全球权利。
+8.MSB2311​：靶向PD-L1的单抗，适应症为实体瘤，单药或联合VEGFRi使用，处于临床Ⅱ期阶段。公司内部持有全球权利。
+9.MSB0254​：靶向VEGFR2的单抗，适应症为实体瘤，单药使用，处于临床Ⅱ期阶段。公司内部持有全球权利。
+10.TST005​：靶向PD-L1/TGF-β的BsP，适应症为实体瘤，单药使用，处于临床Ⅰ期阶段。公司内部持有全球权利。
+非肿瘤：
+1.Blosozumab（TST002）:靶向硬骨素的单抗，适应症为骨质疏松，单药使用，处于临床Ⅱ期阶段。自礼来制药授权引进，公司持有大中华区权利。
+2.TST004：靶向MASP2的单抗，适应症为IgA肾病、TMA,单药使用，处于临床Ⅰ期阶段。与礼邦医药于大中华区共同开发，持有全球权利。
+3.TST008：全球首创（FIC）靶向MASP2/BAFF的双特异性抗体，适应症为SLE/LN/IgA肾病,单药使用，处于IND阶段。公司内部持有全球权利。
+4.TST801：全球首创（FIC）靶向BAFF/APRIL的BsP，适应症为SLE/LN/IgA肾病,单药使用，处于临床前阶段。公司内部持有全球权利。
+5.TST808：靶点尚未公开披露的单克隆抗体药物，适应症为IgA肾病,单药使用，处于临床前阶段。公司内部持有全球权利。
+    """
+
+    print(f"--- 测试 1 结果 ---")
+    print(f"原文: {text1}")
+    print(f"分词: {tokenize_simple(text1)}")
+    print()
+
+    print(f"--- 测试 2 结果 ---")
+    print(f"原文: {text2}")
+    print(f"分词: {tokenize_simple(text2)}")
+    print()
+
+    print(f"--- 测试 3 结果 ---")
+    print(f"原文: {text3}")
+    print(f"分词: {tokenize_simple(text3)}")

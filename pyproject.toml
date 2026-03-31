@@ -27,6 +27,7 @@ dependencies = [
     "msoffcrypto-tool",
     "pymongo>=4.6.0",
     "jieba>=0.42.1",
+    "apscheduler>=3.11.2",
 ]
 
 [project.optional-dependencies]

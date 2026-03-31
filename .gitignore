@@ -17,3 +17,5 @@ volumes/
 # OS files
 .DS_Store
 data/
+skills-lock.json
+temp.py
