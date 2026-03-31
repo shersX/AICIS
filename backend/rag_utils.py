@@ -201,10 +201,10 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
     candidate_k = max(top_k * 3, top_k)
     print(f"[RETRIEVE] 开始检索, query={query}, top_k={top_k}", file=sys.stderr)
     try:
-        print(f"[RETRIEVE] 1. 获取 embedding...", file=sys.stderr)
+        print(f"[RETRIEVE] 1. 获取问题 embedding...", file=sys.stderr)
         dense_embeddings = _embedding_service.get_embeddings([query])
         dense_embedding = dense_embeddings[0]
-        print(f"[RETRIEVE] 2. 获取 sparse embedding...", file=sys.stderr)
+        print(f"[RETRIEVE] 2. 获取问题 sparse embedding...", file=sys.stderr)
         sparse_embedding = _embedding_service.get_sparse_embedding(query)
 
         print(f"[RETRIEVE] 3. Milvus 混合检索, candidate_k={candidate_k}", file=sys.stderr)

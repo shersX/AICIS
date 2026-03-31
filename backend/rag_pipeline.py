@@ -1,5 +1,5 @@
 from typing import Literal, TypedDict, List, Optional
-import os
+import os,re
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langgraph.graph import StateGraph, END
@@ -166,7 +166,6 @@ def grade_documents_node(state: RAGState) -> RAGState:
     prompt = GRADE_PROMPT.format(question=question, context=context)
     print(f"[RAG_PIPELINE] grade_documents_node: 调用 grader, prompt长度={len(prompt)}", file=sys.stderr)
     try:
-        # 暂时移除 structured_output，查看原始响应
         raw_response = grader.invoke([{"role": "user", "content": prompt}])
         
         print(f"[RAG_PIPELINE] grader 当前模型：{grader.model_name}， 原始响应 type={type(raw_response)}, content={repr(raw_response.content)}", file=sys.stderr)
@@ -179,7 +178,6 @@ def grade_documents_node(state: RAGState) -> RAGState:
             score = "no"
         else:
             # 尝试提取 yes/no
-            import re
             match = re.search(r'\b(yes|no)\b', text)
             score = match.group(1) if match else "no"
         
