@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 import os
 import json
 import asyncio
+import sys
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
@@ -13,6 +14,12 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
+AGENT_DEBUG_PROMPT = os.getenv("AGENT_DEBUG_PROMPT", "0") == "1"
+
+
+def _debug_log(message: str):
+    if AGENT_DEBUG_PROMPT:
+        print(f"[AGENT_DEBUG] {message}", file=sys.stderr)
 
 class ConversationStorage:
     """对话存储"""
@@ -107,6 +114,11 @@ class ConversationStorage:
             return {}
 
 
+def _current_date_system_message() -> SystemMessage:
+    """每次请求使用的当前日期（不写入持久化历史，仅注入本轮调用）。"""
+    today_zh = f"{datetime.now().year}年{datetime.now().month}月{datetime.now().day}日"
+    return SystemMessage(content=f"当前日期是：{today_zh}。")
+
 
 def create_agent_instance():
     model = init_chat_model(
@@ -177,8 +189,11 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
         ] + messages[40:]
 
     messages.append(HumanMessage(content=user_text))
+    invoke_messages = [_current_date_system_message()] + messages
+    _debug_log(f"system_date_prompt={invoke_messages[0].content}")
+    _debug_log(f"user_input={user_text[:120]}")
     result = agent.invoke(
-        {"messages": messages},
+        {"messages": invoke_messages},
         config={"recursion_limit": 8},
     )
 
@@ -216,7 +231,6 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     架构：使用统一输出队列 + 后台任务，确保 RAG 检索步骤在工具执行期间实时推送，
     而非等待工具完成后才显示。
     """
-    import sys
     print(f"[AGENT_STREAM] 开始处理: user_text={user_text[:50]}...", file=sys.stderr)
     messages = storage.load(user_id, session_id)
 
@@ -241,17 +255,19 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         ] + messages[40:]
 
     messages.append(HumanMessage(content=user_text))
+    invoke_messages = [_current_date_system_message()] + messages
+    _debug_log(f"system_date_prompt={invoke_messages[0].content}")
+    _debug_log(f"user_input={user_text[:120]}")
 
     full_response = ""
 
     async def _agent_worker():
         """后台任务：运行 agent 并将内容 chunk 推入输出队列。"""
         nonlocal full_response
-        import sys
         try:
             print(f"[AGENT_WORKER] 开始执行 agent", file=sys.stderr)
             async for msg, metadata in agent.astream(
-                {"messages": messages},
+                {"messages": invoke_messages},
                 stream_mode="messages",
                 config={"recursion_limit": 8},
             ):

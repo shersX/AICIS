@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
+import sys
+import traceback
 
 from backend.rag_utils import retrieve_documents, step_back_expand, generate_hypothetical_document
 from backend.tools import emit_rag_step
@@ -108,7 +110,6 @@ def _format_docs(docs: List[dict]) -> str:
 
 
 def retrieve_initial(state: RAGState) -> RAGState:
-    import sys
     print(f"[RAG_PIPELINE] retrieve_initial 开始, question={state['question']}", file=sys.stderr)
     query = state["question"]
     emit_rag_step("🔍", "正在检索新闻知识库...", f"查询: {query[:50]}")
@@ -147,7 +148,6 @@ def retrieve_initial(state: RAGState) -> RAGState:
 
 
 def grade_documents_node(state: RAGState) -> RAGState:
-    import sys
     print(f"[RAG_PIPELINE] grade_documents_node 开始", file=sys.stderr)
     grader = _get_grader_model()
     emit_rag_step("📊", "正在评估文档相关性...")
@@ -184,7 +184,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
         print(f"[RAG_PIPELINE] 解析后 score={score}", file=sys.stderr)
     except Exception as e:
         print(f"[RAG_PIPELINE] grade_documents_node 异常: {type(e).__name__}: {e}", file=sys.stderr)
-        import traceback
+        
         traceback.print_exc(file=sys.stderr)
         grade_update = {
             "grade_score": "error",
@@ -213,7 +213,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
 
 
 def rewrite_question_node(state: RAGState) -> RAGState:
-    import sys
+
     question = state["question"]
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()
@@ -233,7 +233,6 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 
             # 解析策略
             text = raw_response.content.lower().strip()
-            import re
             match = re.search(r'\b(step_back|hyde|complex)\b', text)
             strategy = match.group(1) if match else "step_back"
             print(f"[RAG_PIPELINE] 解析后 strategy={strategy}", file=sys.stderr)

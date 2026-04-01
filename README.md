@@ -118,7 +118,6 @@ docker compose logs -f standalone
 
 ### 其他能力拓展
 
-1. 开发 SQL assistant Skill
 2. 实现暂停功能与人工介入机制
 3. 新增问题类型判断，简单问题跳过复杂处理流程
 4. 扩展网络搜索能力
@@ -154,6 +153,51 @@ docker compose logs -f standalone
 - 向量库：Milvus（可由 `docker-compose` 或自建服务提供）。
 
 ## 核心流程
+
+### 0) 一张图看懂后端调用链
+
+```mermaid
+flowchart TD
+    A[前端/调用方] --> B[FastAPI app.py]
+    B --> C[api.py 路由层]
+
+    C -->|POST /chat| D[agent.py chat_with_agent]
+    C -->|POST /chat/stream| E[agent.py chat_with_agent_stream]
+    C -->|GET/DELETE sessions| F[ConversationStorage]
+
+    D --> G[LangChain Agent]
+    E --> G
+    G -->|天气类问题| H[get_current_weather]
+    G -->|知识问答| I[search_knowledge_base]
+
+    I --> J[rag_pipeline.py run_rag_graph]
+    J --> J1[retrieve_initial]
+    J1 --> J2[grade_documents]
+    J2 -->|yes| J5[结束并返回 docs]
+    J2 -->|no| J3[rewrite_question]
+    J3 --> J4[retrieve_expanded]
+    J4 --> J5
+
+    J1 --> K[rag_utils.retrieve_documents]
+    J4 --> K
+    K --> L[embedding.py 稠密+稀疏向量]
+    K --> M[milvus_client.py Hybrid Search + RRF]
+    K --> N[可选 Rerank]
+
+    J --> O[rag_trace]
+    O --> D
+    O --> E
+
+    E --> P[SSE 输出 content/rag_step/trace]
+    D --> Q[JSON 输出 response/rag_trace]
+
+    D --> F
+    E --> F
+
+    R[定时或手动执行 migrate_news.py] --> S[MongoDB 读取新闻]
+    S --> T[embedding.py 生成向量/BM25状态]
+    T --> U[写入 Milvus 集合]
+```
 
 ### 1) 项目全链路（端到端）
 1. 用户在前端输入问题，调用 `POST /chat/stream`（流式）。
