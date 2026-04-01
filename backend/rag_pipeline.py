@@ -1,5 +1,6 @@
 from typing import Literal, TypedDict, List, Optional
 import os,re
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langgraph.graph import StateGraph, END
@@ -55,10 +56,11 @@ def _get_router_model():
 
 GRADE_PROMPT = (
     "You are a grader assessing relevance of a retrieved document to a user question. \n "
+    "Output ONLY 'yes' or 'no' — no extra words, no explanation.\n"
+    "If the context has keywords OR semantic meaning related to the question, output yes.\n"
+    "If uncertain or not relevant, output no.\n"
+    "Here is the user question: {question} \n"    
     "Here is the retrieved document: \n\n {context} \n\n"
-    "Here is the user question: {question} \n"
-    "If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n"
-    "Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."
 )
 
 
@@ -87,7 +89,70 @@ class RAGState(TypedDict):
     step_back_question: Optional[str]
     step_back_answer: Optional[str]
     hypothetical_doc: Optional[str]
+    time_filter_expr: Optional[str]
+    time_range_text: Optional[str]
+    is_time_sensitive: Optional[bool]
     rag_trace: Optional[dict]
+
+
+def _parse_relative_days(question: str) -> Optional[int]:
+    lowered = question.lower()
+    if "最近一周" in question or "近一周" in question:
+        return 7
+    if "最近三天" in question or "近三天" in question:
+        return 3
+    if "最近两天" in question or "近两天" in question:
+        return 2
+    if "最近一天" in question or "近一天" in question:
+        return 1
+    if "本周" in question:
+        return 7
+
+    match = re.search(r"(最近|近)\s*(\d+)\s*天", question)
+    if match:
+        return int(match.group(2))
+    match_en = re.search(r"(last|past)\s*(\d+)\s*days?", lowered)
+    if match_en:
+        return int(match_en.group(2))
+    # English common expressions
+    if "past week" in lowered or "last week" in lowered:
+        return 7
+    if "past month" in lowered or "last month" in lowered:
+        return 30
+    if "past day" in lowered or "last day" in lowered:
+        return 1
+    if "past three days" in lowered or "last three days" in lowered:
+        return 3
+    if "past two days" in lowered or "last two days" in lowered:
+        return 2
+    if "past one day" in lowered or "last one day" in lowered:
+        return 1
+    match_en_week = re.search(r"(last|past)\s*(\d+)\s*weeks?", lowered)
+    if match_en_week:
+        return int(match_en_week.group(2)) * 7
+    match_en_month = re.search(r"(last|past)\s*(\d+)\s*months?", lowered)
+    if match_en_month:
+        return int(match_en_month.group(2)) * 30
+    return None
+
+
+def _build_publish_time_filter_expr(question: str) -> tuple[str, Optional[str], bool]:
+    days = _parse_relative_days(question)
+    if not days or days <= 0:
+        return "", None, False
+
+    now_dt = datetime.now()
+    start_dt = now_dt - timedelta(days=days)
+    start_sec = int(start_dt.timestamp())
+    end_sec = int(now_dt.timestamp())
+    start_ms = start_sec * 1000
+    end_ms = end_sec * 1000
+    expr = (
+        f"((publish_time >= {start_sec} and publish_time <= {end_sec}) "
+        f"or (publish_time >= {start_ms} and publish_time <= {end_ms}))"
+    )
+    time_range_text = f"{start_dt.strftime('%Y-%m-%d')}..{now_dt.strftime('%Y-%m-%d')}"
+    return expr, time_range_text, True
 
 
 def _format_docs(docs: List[dict]) -> str:
@@ -112,8 +177,11 @@ def _format_docs(docs: List[dict]) -> str:
 def retrieve_initial(state: RAGState) -> RAGState:
     print(f"[RAG_PIPELINE] retrieve_initial 开始, question={state['question']}", file=sys.stderr)
     query = state["question"]
+    filter_expr = state.get("time_filter_expr") or ""
+    time_range_text = state.get("time_range_text")
+    is_time_sensitive = bool(state.get("is_time_sensitive"))
     emit_rag_step("🔍", "正在检索新闻知识库...", f"查询: {query[:50]}")
-    retrieved = retrieve_documents(query, top_k=5)
+    retrieved = retrieve_documents(query, top_k=8, filter_expr=filter_expr)
     results = retrieved.get("docs", [])
     retrieve_meta = retrieved.get("meta", {})
     context = _format_docs(results)
@@ -138,6 +206,9 @@ def retrieve_initial(state: RAGState) -> RAGState:
         "rerank_error": retrieve_meta.get("rerank_error"),
         "retrieval_mode": retrieve_meta.get("retrieval_mode"),
         "candidate_k": retrieve_meta.get("candidate_k"),
+        "time_filter_expr": filter_expr,
+        "time_range_text": time_range_text,
+        "is_time_sensitive": is_time_sensitive,
     }
     return {
         "query": query,
@@ -215,6 +286,7 @@ def grade_documents_node(state: RAGState) -> RAGState:
 def rewrite_question_node(state: RAGState) -> RAGState:
 
     question = state["question"]
+    is_time_sensitive = bool(state.get("is_time_sensitive"))
     emit_rag_step("✏️", "正在重写查询...")
     router = _get_router_model()
     strategy = "step_back"
@@ -239,6 +311,10 @@ def rewrite_question_node(state: RAGState) -> RAGState:
         except Exception as e:
             print(f"[RAG_PIPELINE] router 异常: {e}", file=sys.stderr)
             strategy = "step_back"
+
+    if is_time_sensitive and strategy in ("step_back", "complex"):
+        strategy = "hyde"
+        emit_rag_step("⏱️", "检测到时效查询", "已禁用 step-back，避免偏离时间窗口")
 
     expanded_query = question
     step_back_question = ""
@@ -274,6 +350,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 
 def retrieve_expanded(state: RAGState) -> RAGState:
     strategy = state.get("expansion_type") or "step_back"
+    filter_expr = state.get("time_filter_expr") or ""
     emit_rag_step("🔄", "使用扩展查询重新检索...", f"策略: {strategy}")
     results: List[dict] = []
     rerank_applied_any = False
@@ -286,7 +363,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
 
     if strategy in ("hyde", "complex"):
         hypothetical_doc = state.get("hypothetical_doc") or generate_hypothetical_document(state["question"])
-        retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=5)
+        retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=8, filter_expr=filter_expr)
         results.extend(retrieved_hyde.get("docs", []))
         hyde_meta = retrieved_hyde.get("meta", {})
         emit_rag_step(
@@ -305,7 +382,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
 
     if strategy in ("step_back", "complex"):
         expanded_query = state.get("expanded_query") or state["question"]
-        retrieved_stepback = retrieve_documents(expanded_query, top_k=5)
+        retrieved_stepback = retrieve_documents(expanded_query, top_k=8, filter_expr=filter_expr)
         results.extend(retrieved_stepback.get("docs", []))
         step_meta = retrieved_stepback.get("meta", {})
         emit_rag_step(
@@ -355,6 +432,9 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         "rerank_error": "; ".join(rerank_errors) if rerank_errors else None,
         "retrieval_mode": retrieval_mode,
         "candidate_k": candidate_k,
+        "time_filter_expr": filter_expr,
+        "time_range_text": state.get("time_range_text"),
+        "is_time_sensitive": bool(state.get("is_time_sensitive")),
     })
     return {"docs": deduped, "context": context, "rag_trace": rag_trace}
 
@@ -385,6 +465,7 @@ rag_graph = build_rag_graph()
 
 
 def run_rag_graph(question: str) -> dict:
+    time_filter_expr, time_range_text, is_time_sensitive = _build_publish_time_filter_expr(question)
     return rag_graph.invoke({
         "question": question,
         "query": question,
@@ -396,5 +477,8 @@ def run_rag_graph(question: str) -> dict:
         "step_back_question": None,
         "step_back_answer": None,
         "hypothetical_doc": None,
+        "time_filter_expr": time_filter_expr,
+        "time_range_text": time_range_text,
+        "is_time_sensitive": is_time_sensitive,
         "rag_trace": None,
     })

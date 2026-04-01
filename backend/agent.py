@@ -141,9 +141,12 @@ def create_agent_instance():
     "Once you call search_knowledge_base and receive its result, you MUST immediately produce the Final Answer based on that result. "
     "After receiving search_knowledge_base result, you MUST NOT call any tool again (including get_current_weather or search_knowledge_base). "
     "If the retrieved context is insufficient, answer honestly that you don't know instead of making up facts. "
+    "If search_knowledge_base returns 'No relevant documents found in the knowledge base.', state clearly that no relevant information was found in the current retrieval scope, do not fabricate facts, and suggest 1-2 concrete next steps (e.g., broaden time range or add specific keywords). "
     "If tool results include a Step-back Question/Answer, use that general principle to reason and answer, "
     "but do not reveal chain-of-thought. "
-    "If you don't know the answer, admit it honestly."
+    "If you don't know the answer, admit it honestly. "
+    "Always respond in the same language as the user's latest message unless the user explicitly asks for another language. "
+    "When presenting multiple facts, attach the corresponding source link right after each fact (inline citation), instead of listing all sources only at the end,with no omissions allowed. "
     "When providing information from retrieved documents, ALWAYS include the source URL in Markdown format. "
     "Format sources as: [来源标题](URL) so users can click directly."
 ),

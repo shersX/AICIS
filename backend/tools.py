@@ -1,6 +1,7 @@
 from typing import Optional
 import os
 import requests
+from datetime import datetime
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
@@ -60,6 +61,20 @@ def emit_rag_step(icon: str, label: str, detail: str = ""):
                 _RAG_STEP_LOOP.call_soon_threadsafe(_RAG_STEP_QUEUE.put_nowait, step)
         except Exception:
             pass
+
+
+def _format_publish_date(publish_time) -> str:
+    """将时间戳（秒/毫秒）格式化为 YYYY-MM-DD。"""
+    try:
+        ts = int(publish_time)
+        if ts <= 0:
+            return "未知"
+        # 兼容毫秒时间戳
+        if ts > 10**12:
+            ts = ts // 1000
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    except Exception:
+        return "未知"
 
 
 def get_current_weather(location: str, extensions: Optional[str] = "base") -> str:
@@ -159,14 +174,18 @@ def search_knowledge_base(query: str) -> str:
     for i, result in enumerate(docs, 1):
         title = result.get("title", "无标题")
         source = result.get("origin_name", result.get("filename", "Unknown"))
-        summary = result.get("text", result.get("summary", ""))
+        text = result.get("text", result.get("summary", ""))
         url = result.get("url", "")
-        
-        item = f"[{i}] {title}\n来源: {source}"
-        if url:
-            item += f"\n🔗 [{title}]({url})"
-        if summary:
-            item += f"\n摘要: {summary}"
+        publish_date = _format_publish_date(result.get("publish_time", 0))
+
+        item = (
+            f"[{i}] {title}\n"
+            f"来源: {source}\n"
+            f"发布时间: {publish_date}\n"
+            f"链接: {url}"
+        )
+        if text:
+            item += f"\n摘要: {text}"
         formatted.append(item)
 
-    return "Retrieved News:\n" + "\n\n---\n\n".join(formatted)
+    return "Retrieved News:" +"\n\n-----\n\n".join(formatted)

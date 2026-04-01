@@ -3,6 +3,7 @@ import os
 import json
 import requests
 from dotenv import load_dotenv
+import sys
 
 from backend.milvus_client import MilvusManager
 from backend.embedding import SiliconFlowEmbedding
@@ -16,6 +17,7 @@ BASE_URL = os.getenv("BASE_URL")
 RERANK_MODEL = os.getenv("RERANK_MODEL")
 RERANK_BINDING_HOST = os.getenv("RERANK_BINDING_HOST")
 RERANK_API_KEY = os.getenv("RERANK_API_KEY")
+SIMILARITY_THRESHOLD = 0.20
 
 # 全局初始化检索依赖，避免反复构造
 _embedding_service = SiliconFlowEmbedding()
@@ -196,10 +198,24 @@ def _format_news_docs(docs: List[dict]) -> List[dict]:
     return formatted
 
 
-def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
-    import sys
+def _apply_similarity_threshold(docs: List[dict], threshold: float) -> tuple[List[dict], int]:
+    filtered = []
+    dropped = 0
+    for doc in docs:
+        score = doc.get("rerank_score")
+        if score is None:
+            score = doc.get("score")
+        if score is None or score >= threshold:
+            filtered.append(doc)
+        else:
+            dropped += 1
+    return filtered, dropped
+
+
+def retrieve_documents(query: str, top_k: int = 8, filter_expr: str = "") -> Dict[str, Any]:
+
     candidate_k = max(top_k * 3, top_k)
-    print(f"[RETRIEVE] 开始检索, query={query}, top_k={top_k}", file=sys.stderr)
+    print(f"[RETRIEVE] 开始检索, query={query}, top_k={top_k}, filter_expr={filter_expr}", file=sys.stderr)
     try:
         print(f"[RETRIEVE] 1. 获取问题 embedding...", file=sys.stderr)
         dense_embeddings = _embedding_service.get_embeddings([query])
@@ -212,14 +228,17 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
             dense_embedding=dense_embedding,
             sparse_embedding=sparse_embedding,
             top_k=candidate_k,
-            filter_expr="",
+            filter_expr=filter_expr,
         )
         print(f"[RETRIEVE] 4. Milvus 返回 {len(retrieved)} 条结果", file=sys.stderr)
         retrieved = _format_news_docs(retrieved)
         print(f"[RETRIEVE] 5. 开始 rerank...", file=sys.stderr)
         reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
+        reranked, dropped_count = _apply_similarity_threshold(reranked, SIMILARITY_THRESHOLD)
         rerank_meta["retrieval_mode"] = "hybrid"
         rerank_meta["candidate_k"] = candidate_k
+        rerank_meta["similarity_threshold"] = SIMILARITY_THRESHOLD
+        rerank_meta["dropped_below_threshold"] = dropped_count
         print(f"[RETRIEVE] 6. 完成, 返回 {len(reranked)} 条", file=sys.stderr)
         return {"docs": reranked, "meta": rerank_meta}
     except Exception as e:
@@ -230,13 +249,16 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
             retrieved = _milvus_manager.dense_retrieve(
                 dense_embedding=dense_embedding,
                 top_k=candidate_k,
-                filter_expr="",
+                filter_expr=filter_expr,
             )
             print(f"[RETRIEVE] Dense 返回 {len(retrieved)} 条", file=sys.stderr)
             retrieved = _format_news_docs(retrieved)
             reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
+            reranked, dropped_count = _apply_similarity_threshold(reranked, SIMILARITY_THRESHOLD)
             rerank_meta["retrieval_mode"] = "dense_fallback"
             rerank_meta["candidate_k"] = candidate_k
+            rerank_meta["similarity_threshold"] = SIMILARITY_THRESHOLD
+            rerank_meta["dropped_below_threshold"] = dropped_count
             return {"docs": reranked, "meta": rerank_meta}
         except Exception as e2:
             print(f"[RETRIEVE] Dense 也失败: {e2}", file=sys.stderr)
