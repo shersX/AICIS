@@ -99,9 +99,15 @@
 
                     <!-- Messages -->
                     <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.isUser ? 'user-message' : 'bot-message']">
-                    <!-- 思考动画（在气泡内部，RAG 步骤实时填入） -->
-                    <div v-if="!msg.isUser && msg.isThinking && !msg.text" class="message-content thinking-content">
-                        <div class="thinking-header">
+                    <!-- 用户消息 -->
+                    <div v-if="msg.isUser" class="message-content" v-html="escapeHtml(msg.text)"></div>
+                    <!-- 机器人：思考条、RAG 步骤与正文同气泡；步骤在已有正文时也保留（避免首包合并 SSE 时步骤被隐藏） -->
+                    <div
+                        v-else
+                        class="message-content"
+                        :class="{ 'thinking-content': msg.isThinking && !msg.text }"
+                    >
+                        <div v-if="msg.isThinking && !msg.text" class="thinking-header">
                             <div class="thinking-dots">
                                 <span class="tdot"></span>
                                 <span class="tdot"></span>
@@ -110,16 +116,29 @@
                             <span v-if="!msg.ragSteps || !msg.ragSteps.length" class="thinking-text">正在思考中...</span>
                             <span v-else class="thinking-text">{{ msg.ragSteps[msg.ragSteps.length - 1].label }}</span>
                         </div>
-                        <div v-if="msg.ragSteps && msg.ragSteps.length" class="thinking-trace-lines">
-                            <div v-for="(step, sIdx) in msg.ragSteps" :key="sIdx" class="thinking-trace-line">
-                                <span class="thinking-trace-icon">{{ step.icon || '▶' }}</span>
-                                <span class="thinking-trace-label">{{ step.label }}</span>
-                                <span v-if="step.detail" class="thinking-trace-detail">{{ step.detail }}</span>
+                        <details
+                            v-if="msg.ragSteps && msg.ragSteps.length"
+                            class="rag-steps-details"
+                            :open="msg.ragStepsExpanded"
+                            @toggle="onRagStepsToggle(msg, $event)"
+                        >
+                            <summary class="rag-steps-summary">
+                                实时检索步骤
+                                <span class="rag-steps-count">（{{ msg.ragSteps.length }} 步）</span>
+                            </summary>
+                            <div
+                                class="thinking-trace-lines"
+                                :class="{ 'thinking-trace-lines--above-reply': msg.text }"
+                            >
+                                <div v-for="(step, sIdx) in msg.ragSteps" :key="sIdx" class="thinking-trace-line">
+                                    <span class="thinking-trace-icon">{{ step.icon || '▶' }}</span>
+                                    <span class="thinking-trace-label">{{ step.label }}</span>
+                                    <span v-if="step.detail" class="thinking-trace-detail">{{ step.detail }}</span>
+                                </div>
                             </div>
-                        </div>
+                        </details>
+                        <div v-if="msg.text" class="bot-reply-markdown" v-html="parseMarkdown(msg.text)"></div>
                     </div>
-                    <!-- 正常回复内容 -->
-                    <div v-else class="message-content" v-html="msg.isUser ? escapeHtml(msg.text) : parseMarkdown(msg.text)"></div>
                     <div v-if="!msg.isUser && msg.ragTrace" class="message-meta">
                         <details class="reasoning-details">
                             <summary>检索过程</summary>

@@ -1015,6 +1015,48 @@ textarea {
     margin-left: 10px;
 }
 
+/* RAG 步骤出现在正文上方时与 Markdown 区隔开 */
+.thinking-trace-lines--above-reply {
+    margin-bottom: 10px;
+    margin-top: 2px;
+}
+
+/* 流式结束后默认折叠，可点击摘要展开 */
+.rag-steps-details {
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.rag-steps-summary {
+    cursor: pointer;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    list-style: none;
+    user-select: none;
+}
+
+.rag-steps-summary::-webkit-details-marker {
+    display: none;
+}
+
+.rag-steps-summary::before {
+    content: '▶';
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 0.75rem;
+    transition: transform 0.2s ease;
+}
+
+.rag-steps-details[open] > .rag-steps-summary::before {
+    transform: rotate(90deg);
+}
+
+.rag-steps-count {
+    font-weight: 500;
+    color: var(--text-light, #999);
+}
+
 .thinking-trace-line {
     display: flex;
     align-items: baseline;

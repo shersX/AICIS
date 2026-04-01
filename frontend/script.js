@@ -40,7 +40,10 @@ createApp({
         },
         
         parseMarkdown(text) {
-            return marked.parse(text);
+            if (!text) return '';
+            const html = marked.parse(text);
+            // 对话内链接在新标签页打开，避免离开当前会话页
+            return html.replace(/<a\s+/gi, '<a target="_blank" rel="noopener noreferrer" ');
         },
         
         escapeHtml(text) {
@@ -55,6 +58,10 @@ createApp({
         
         handleCompositionEnd() {
             this.isComposing = false;
+        },
+
+        onRagStepsToggle(msg, event) {
+            msg.ragStepsExpanded = event.target.open;
         },
         
         handleKeyDown(event) {
@@ -96,7 +103,8 @@ createApp({
                 isUser: false, 
                 isThinking: true, 
                 ragTrace: null,
-                ragSteps: [] 
+                ragSteps: [],
+                ragStepsExpanded: true
             });
             const botMsgIdx = this.messages.length - 1;
 
@@ -146,11 +154,12 @@ createApp({
                                 } else if (data.type === 'trace') {
                                     this.messages[botMsgIdx].ragTrace = data.rag_trace;
                                 } else if (data.type === 'rag_step') {
-                                    // 实时 RAG 检索步骤 — 直接显示在思考气泡内
+                                    // 实时 RAG 检索步骤（与正文同气泡；每步后 nextTick 以便同缓冲区内多事件也能逐帧刷新）
                                     if (!this.messages[botMsgIdx].ragSteps) {
                                         this.messages[botMsgIdx].ragSteps = [];
                                     }
                                     this.messages[botMsgIdx].ragSteps.push(data.step);
+                                    await this.$nextTick();
                                 } else if (data.type === 'error') {
                                     this.messages[botMsgIdx].isThinking = false;
                                     this.messages[botMsgIdx].text += `\n[Error: ${data.content}]`;
@@ -178,6 +187,10 @@ createApp({
                     this.messages[botMsgIdx].text = `出错了：${error.message}`;
                 }
             } finally {
+                const m = this.messages[botMsgIdx];
+                if (m && m.ragSteps && m.ragSteps.length) {
+                    m.ragStepsExpanded = false;
+                }
                 this.isLoading = false;
                 this.abortController = null;
                 this.$nextTick(() => this.scrollToBottom());
