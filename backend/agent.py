@@ -3,10 +3,12 @@ import os
 import json
 import asyncio
 import sys
+import tempfile
+from filelock import FileLock, Timeout
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
-from backend.tools import get_current_weather, search_knowledge_base, get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
+from backend.tools import get_current_weather, search_knowledge_base, ToolRuntime
 from datetime import datetime
 
 load_dotenv()
@@ -14,15 +16,9 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
-AGENT_DEBUG_PROMPT = os.getenv("AGENT_DEBUG_PROMPT", "0") == "1"
-
-
-def _debug_log(message: str):
-    if AGENT_DEBUG_PROMPT:
-        print(f"[AGENT_DEBUG] {message}", file=sys.stderr)
 
 class ConversationStorage:
-    """对话存储"""
+    """对话存储（跨进程 filelock + 临时文件原子替换，避免并发丢失更新与半截 JSON）。"""
 
     def __init__(self, storage_file: str = None):
         if storage_file:
@@ -34,84 +30,139 @@ class ConversationStorage:
             storage_path = os.path.join(data_dir, "customer_service_history.json")
 
         self.storage_file = storage_path
+        lock_path = f"{storage_path}.lock"
+        lock_timeout = float(os.getenv("CONVERSATION_STORAGE_LOCK_TIMEOUT", "60"))
+        self._file_lock = FileLock(lock_path, timeout=lock_timeout)
 
-    def save(self, user_id: str, session_id: str, messages: list, metadata: dict = None, extra_message_data: list = None):
-        """保存对话"""
-        data = self._load()
-
-        if user_id not in data:
-            data[user_id] = {}
-
-        serialized = []
-        for idx, msg in enumerate(messages):
-            record = {
-                "type": msg.type,
-                "content": msg.content,
-                "timestamp": datetime.now().isoformat()
-            }
-            if extra_message_data and idx < len(extra_message_data):
-                extra = extra_message_data[idx] or {}
-                if "rag_trace" in extra:
-                    record["rag_trace"] = extra["rag_trace"]
-            serialized.append(record)
-
-        data[user_id][session_id] = {
-            "messages": serialized,
-            "metadata": metadata or {},
-            "updated_at": datetime.now().isoformat()
-        }
-
-        with open(self.storage_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-    def load(self, user_id: str, session_id: str) -> list:
-        """加载对话"""
-        data = self._load()
-
-        if user_id not in data or session_id not in data[user_id]:
-            return []
-
-        messages = []
-        for msg_data in data[user_id][session_id]["messages"]:
-            if msg_data["type"] == "human":
-                messages.append(HumanMessage(content=msg_data["content"]))
-            elif msg_data["type"] == "ai":
-                messages.append(AIMessage(content=msg_data["content"]))
-            elif msg_data["type"] == "system":
-                messages.append(SystemMessage(content=msg_data["content"]))
-
-        return messages
-
-    def list_sessions(self, user_id: str) -> list:
-        """列出用户的所有会话"""
-        data = self._load()
-        if user_id not in data:
-            return []
-        return list(data[user_id].keys())
-
-    def delete_session(self, user_id: str, session_id: str) -> bool:
-        """删除指定用户的会话，返回是否删除成功"""
-        data = self._load()
-        if user_id not in data or session_id not in data[user_id]:
-            return False
-
-        del data[user_id][session_id]
-        if not data[user_id]:
-            del data[user_id]
-
-        with open(self.storage_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        return True
-
-    def _load(self) -> dict:
-        """加载数据"""
+    def _load_unlocked(self) -> dict:
+        """加载数据（调用方须已持有 self._file_lock）。"""
         if not os.path.exists(self.storage_file):
             return {}
         try:
-            with open(self.storage_file, 'r', encoding='utf-8') as f:
+            with open(self.storage_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
+
+    def _atomic_write_json_unlocked(self, data: dict) -> None:
+        """原子写入 JSON：临时文件 fsync 后 os.replace（须在锁内调用）。"""
+        dir_name = os.path.dirname(self.storage_file) or "."
+        fd, tmp_path = tempfile.mkstemp(
+            dir=dir_name,
+            prefix=".customer_service_history.",
+            suffix=".tmp.json",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.storage_file)
+        except BaseException:
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def _acquire_lock(self):
+        try:
+            self._file_lock.acquire()
+        except Timeout as e:
+            raise RuntimeError(
+                f"会话存储文件锁获取超时（{self._file_lock.lock_file}），"
+                "可适当增大环境变量 CONVERSATION_STORAGE_LOCK_TIMEOUT（秒）。"
+            ) from e
+
+    def save(self, user_id: str, session_id: str, messages: list, metadata: dict = None, extra_message_data: list = None):
+        """保存对话"""
+        self._acquire_lock()
+        try:
+            data = self._load_unlocked()
+
+            if user_id not in data:
+                data[user_id] = {}
+
+            serialized = []
+            for idx, msg in enumerate(messages):
+                record = {
+                    "type": msg.type,
+                    "content": msg.content,
+                    "timestamp": datetime.now().isoformat(),
+                }
+                if extra_message_data and idx < len(extra_message_data):
+                    extra = extra_message_data[idx] or {}
+                    if "rag_trace" in extra:
+                        record["rag_trace"] = extra["rag_trace"]
+                serialized.append(record)
+
+            data[user_id][session_id] = {
+                "messages": serialized,
+                "metadata": metadata or {},
+                "updated_at": datetime.now().isoformat(),
+            }
+
+            self._atomic_write_json_unlocked(data)
+        finally:
+            self._file_lock.release()
+
+    def load(self, user_id: str, session_id: str) -> list:
+        """加载对话"""
+        self._acquire_lock()
+        try:
+            data = self._load_unlocked()
+            if user_id not in data or session_id not in data[user_id]:
+                return []
+
+            messages = []
+            for msg_data in data[user_id][session_id]["messages"]:
+                if msg_data["type"] == "human":
+                    messages.append(HumanMessage(content=msg_data["content"]))
+                elif msg_data["type"] == "ai":
+                    messages.append(AIMessage(content=msg_data["content"]))
+                elif msg_data["type"] == "system":
+                    messages.append(SystemMessage(content=msg_data["content"]))
+
+            return messages
+        finally:
+            self._file_lock.release()
+
+    def list_sessions(self, user_id: str) -> list:
+        """列出用户的所有会话"""
+        self._acquire_lock()
+        try:
+            data = self._load_unlocked()
+            if user_id not in data:
+                return []
+            return list(data[user_id].keys())
+        finally:
+            self._file_lock.release()
+
+    def delete_session(self, user_id: str, session_id: str) -> bool:
+        """删除指定用户的会话，返回是否删除成功"""
+        self._acquire_lock()
+        try:
+            data = self._load_unlocked()
+            if user_id not in data or session_id not in data[user_id]:
+                return False
+
+            del data[user_id][session_id]
+            if not data[user_id]:
+                del data[user_id]
+
+            self._atomic_write_json_unlocked(data)
+            return True
+        finally:
+            self._file_lock.release()
+
+    def _load(self) -> dict:
+        """加载完整存储快照（供 API 等读会话列表；与 save/delete 互斥）。"""
+        self._acquire_lock()
+        try:
+            return self._load_unlocked()
+        finally:
+            self._file_lock.release()
 
 
 def _current_date_system_message() -> SystemMessage:
@@ -179,11 +230,8 @@ def summarize_old_messages(model, messages: list) -> str:
 def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     """使用 Agent 处理用户消息并返回响应"""
     messages = storage.load(user_id, session_id)
+    runtime = ToolRuntime()
 
-    # 清理可能残留的 RAG 上下文，避免跨请求污染
-    get_last_rag_context(clear=True)
-    reset_tool_call_guards()
-    
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
 
@@ -193,11 +241,12 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
     messages.append(HumanMessage(content=user_text))
     invoke_messages = [_current_date_system_message()] + messages
-    _debug_log(f"system_date_prompt={invoke_messages[0].content}")
-    _debug_log(f"user_input={user_text[:120]}")
     result = agent.invoke(
         {"messages": invoke_messages},
-        config={"recursion_limit": 8},
+        config={
+            "recursion_limit": 8,
+            "configurable": {"tool_runtime": runtime},
+        },
     )
 
     response_content = ""
@@ -216,7 +265,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
     
     messages.append(AIMessage(content=response_content))
 
-    rag_context = get_last_rag_context(clear=True)
+    rag_context = runtime.get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
 
     extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
@@ -236,10 +285,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     """
     print(f"[AGENT_STREAM] 开始处理: user_text={user_text[:50]}...", file=sys.stderr)
     messages = storage.load(user_id, session_id)
-
-    # 清理可能残留的 RAG 上下文
-    get_last_rag_context(clear=True)
-    reset_tool_call_guards()
+    runtime = ToolRuntime()
 
     # 统一输出队列：所有事件（content / rag_step）都汇入这里
     output_queue = asyncio.Queue()
@@ -249,7 +295,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         def put_nowait(self, step):
             output_queue.put_nowait({"type": "rag_step", "step": step})
 
-    set_rag_step_queue(_RagStepProxy())
+    runtime.set_rag_step_queue(_RagStepProxy())
 
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
@@ -259,8 +305,6 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     messages.append(HumanMessage(content=user_text))
     invoke_messages = [_current_date_system_message()] + messages
-    _debug_log(f"system_date_prompt={invoke_messages[0].content}")
-    _debug_log(f"user_input={user_text[:120]}")
 
     full_response = ""
 
@@ -272,7 +316,10 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
             async for msg, metadata in agent.astream(
                 {"messages": invoke_messages},
                 stream_mode="messages",
-                config={"recursion_limit": 8},
+                config={
+                    "recursion_limit": 8,
+                    "configurable": {"tool_runtime": runtime},
+                },
             ):
                 if not isinstance(msg, AIMessageChunk):
                     continue
@@ -331,12 +378,12 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         raise  # 重新抛出 GeneratorExit 以便 FastAPI 正确处理关闭
     finally:
         # 正常结束或异常退出时清理
-        set_rag_step_queue(None)
+        runtime.set_rag_step_queue(None)
         if not agent_task.done():
              agent_task.cancel()
 
     # 获取 RAG trace
-    rag_context = get_last_rag_context(clear=True)
+    rag_context = runtime.get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
 
     # 发送 trace 信息

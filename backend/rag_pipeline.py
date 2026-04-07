@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict, List, Optional
+from typing import Any, Literal, TypedDict, List, Optional
 import os,re
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -9,8 +9,6 @@ import sys
 import traceback
 
 from backend.rag_utils import retrieve_documents, step_back_expand, generate_hypothetical_document
-from backend.tools import emit_rag_step
-
 load_dotenv()
 
 API_KEY = os.getenv("ARK_API_KEY")
@@ -93,6 +91,14 @@ class RAGState(TypedDict):
     time_range_text: Optional[str]
     is_time_sensitive: Optional[bool]
     rag_trace: Optional[dict]
+    tool_runtime: Optional[Any]
+
+
+def _emit_rag_from_state(state: RAGState, icon: str, label: str, detail: str = "") -> None:
+    """通过 graph state 中的 tool_runtime 推送步骤，避免依赖模块级全局队列。"""
+    rt = state.get("tool_runtime")
+    if rt is not None and hasattr(rt, "emit_rag_step"):
+        rt.emit_rag_step(icon, label, detail)
 
 
 def _parse_relative_days(question: str) -> Optional[int]:
@@ -180,17 +186,17 @@ def retrieve_initial(state: RAGState) -> RAGState:
     filter_expr = state.get("time_filter_expr") or ""
     time_range_text = state.get("time_range_text")
     is_time_sensitive = bool(state.get("is_time_sensitive"))
-    emit_rag_step("🔍", "正在检索新闻知识库...", f"查询: {query[:50]}")
+    _emit_rag_from_state(state,"🔍", "正在检索新闻知识库...", f"查询: {query[:50]}")
     retrieved = retrieve_documents(query, top_k=8, filter_expr=filter_expr)
     results = retrieved.get("docs", [])
     retrieve_meta = retrieved.get("meta", {})
     context = _format_docs(results)
-    emit_rag_step(
+    _emit_rag_from_state(state,
         "📰",
         "新闻检索",
         f"候选 {retrieve_meta.get('candidate_k', 0)}"
     )
-    emit_rag_step("✅", f"检索完成，找到 {len(results)} 条新闻", f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}")
+    _emit_rag_from_state(state,"✅", f"检索完成，找到 {len(results)} 条新闻", f"模式: {retrieve_meta.get('retrieval_mode', 'hybrid')}")
     rag_trace = {
         "tool_used": True,
         "tool_name": "search_knowledge_base",
@@ -221,7 +227,7 @@ def retrieve_initial(state: RAGState) -> RAGState:
 def grade_documents_node(state: RAGState) -> RAGState:
     print(f"[RAG_PIPELINE] grade_documents_node 开始", file=sys.stderr)
     grader = _get_grader_model()
-    emit_rag_step("📊", "正在评估文档相关性...")
+    _emit_rag_from_state(state,"📊", "正在评估文档相关性...")
     if not grader:
         print(f"[RAG_PIPELINE] grade_documents_node: grader 为 None", file=sys.stderr)
         grade_update = {
@@ -269,9 +275,9 @@ def grade_documents_node(state: RAGState) -> RAGState:
     # score 已在上面解析完成
     route = "generate_answer" if score == "yes" else "rewrite_question"
     if route == "generate_answer":
-        emit_rag_step("✅", "文档相关性评估通过", f"评分: {score}")
+        _emit_rag_from_state(state,"✅", "文档相关性评估通过", f"评分: {score}")
     else:
-        emit_rag_step("⚠️", "文档相关性不足，将重写查询", f"评分: {score}")
+        _emit_rag_from_state(state,"⚠️", "文档相关性不足，将重写查询", f"评分: {score}")
     grade_update = {
         "grade_score": score,
         "grade_route": route,
@@ -287,7 +293,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 
     question = state["question"]
     is_time_sensitive = bool(state.get("is_time_sensitive"))
-    emit_rag_step("✏️", "正在重写查询...")
+    _emit_rag_from_state(state,"✏️", "正在重写查询...")
     router = _get_router_model()
     strategy = "step_back"
     if router:
@@ -314,7 +320,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 
     if is_time_sensitive and strategy in ("step_back", "complex"):
         strategy = "hyde"
-        emit_rag_step("⏱️", "检测到时效查询", "已禁用 step-back，避免偏离时间窗口")
+        _emit_rag_from_state(state,"⏱️", "检测到时效查询", "已禁用 step-back，避免偏离时间窗口")
 
     expanded_query = question
     step_back_question = ""
@@ -322,14 +328,14 @@ def rewrite_question_node(state: RAGState) -> RAGState:
     hypothetical_doc = ""
 
     if strategy in ("step_back", "complex"):
-        emit_rag_step("🧠", f"使用策略: {strategy}", "生成退步问题")
+        _emit_rag_from_state(state,"🧠", f"使用策略: {strategy}", "生成退步问题")
         step_back = step_back_expand(question)
         step_back_question = step_back.get("step_back_question", "")
         step_back_answer = step_back.get("step_back_answer", "")
         expanded_query = step_back.get("expanded_query", question)
 
     if strategy in ("hyde", "complex"):
-        emit_rag_step("📝", "HyDE 假设性文档生成中...")
+        _emit_rag_from_state(state,"📝", "HyDE 假设性文档生成中...")
         hypothetical_doc = generate_hypothetical_document(question)
 
     rag_trace = state.get("rag_trace", {}) or {}
@@ -351,7 +357,7 @@ def rewrite_question_node(state: RAGState) -> RAGState:
 def retrieve_expanded(state: RAGState) -> RAGState:
     strategy = state.get("expansion_type") or "step_back"
     filter_expr = state.get("time_filter_expr") or ""
-    emit_rag_step("🔄", "使用扩展查询重新检索...", f"策略: {strategy}")
+    _emit_rag_from_state(state,"🔄", "使用扩展查询重新检索...", f"策略: {strategy}")
     results: List[dict] = []
     rerank_applied_any = False
     rerank_enabled_any = False
@@ -366,7 +372,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         retrieved_hyde = retrieve_documents(hypothetical_doc, top_k=8, filter_expr=filter_expr)
         results.extend(retrieved_hyde.get("docs", []))
         hyde_meta = retrieved_hyde.get("meta", {})
-        emit_rag_step(
+        _emit_rag_from_state(state,
             "🧱",
             "HyDE 检索",
             f"候选 {hyde_meta.get('candidate_k', 0)} 条",
@@ -385,7 +391,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         retrieved_stepback = retrieve_documents(expanded_query, top_k=8, filter_expr=filter_expr)
         results.extend(retrieved_stepback.get("docs", []))
         step_meta = retrieved_stepback.get("meta", {})
-        emit_rag_step(
+        _emit_rag_from_state(state,
             "🧱",
             "Step-back 检索",
             f"候选 {step_meta.get('candidate_k', 0)} 条",
@@ -414,7 +420,7 @@ def retrieve_expanded(state: RAGState) -> RAGState:
         item["rrf_rank"] = idx
 
     context = _format_docs(deduped)
-    emit_rag_step("✅", f"扩展检索完成，共 {len(deduped)} 个片段")
+    _emit_rag_from_state(state,"✅", f"扩展检索完成，共 {len(deduped)} 个片段")
     rag_trace = state.get("rag_trace", {}) or {}
     rag_trace.update({
         "expanded_query": state.get("expanded_query") or state["question"],
@@ -464,7 +470,7 @@ def build_rag_graph():
 rag_graph = build_rag_graph()
 
 
-def run_rag_graph(question: str) -> dict:
+def run_rag_graph(question: str, tool_runtime: Optional[Any] = None) -> dict:
     time_filter_expr, time_range_text, is_time_sensitive = _build_publish_time_filter_expr(question)
     return rag_graph.invoke({
         "question": question,
@@ -481,4 +487,5 @@ def run_rag_graph(question: str) -> dict:
         "time_range_text": time_range_text,
         "is_time_sensitive": is_time_sensitive,
         "rag_trace": None,
+        "tool_runtime": tool_runtime,
     })

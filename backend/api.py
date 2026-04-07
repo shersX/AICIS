@@ -1,9 +1,8 @@
 import re
-import os
 import json
-from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+import sys
 
 from backend.schemas import (
     ChatRequest,
@@ -108,7 +107,7 @@ async def chat_endpoint(request: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream_endpoint(request: ChatRequest):
     """跟 Agent 对话 (流式)"""
-    import sys
+
     async def event_generator():
         try:
             async for chunk in chat_with_agent_stream(
