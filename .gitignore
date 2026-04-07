@@ -9,7 +9,8 @@ wheels/
 # Virtual environments
 .venv
 .env    
-.trae
+.trae/
+.agents/
 
 #docker files
 volumes/
