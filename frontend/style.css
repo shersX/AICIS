@@ -49,6 +49,16 @@ body {
     border: 4px solid var(--white);
 }
 
+/* iframe 嵌入模式：去掉大页面背景占位 */
+.embed-mode {
+    width: 100%;
+    height: 100vh;
+    max-width: none;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+}
+
 /* Sidebar */
 .sidebar {
     width: 260px;
@@ -212,6 +222,10 @@ body {
     flex-direction: column;
     gap: 20px;
     scroll-behavior: smooth;
+}
+
+.embed-mode .chat-container {
+    padding: 16px;
 }
 
 .welcome-screen {
@@ -397,6 +411,14 @@ body {
     padding: 20px 30px;
     background-color: var(--white);
     border-top: 1px solid #f0f0f0;
+}
+
+.embed-mode .input-area-wrapper {
+    padding: 12px;
+}
+
+.embed-mode textarea {
+    font-size: 0.92rem;
 }
 
 .input-area {

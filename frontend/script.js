@@ -13,10 +13,13 @@ createApp({
             sessionId: 'session_' + Date.now(),
             sessions: [],
             showHistorySidebar: false,
-            isComposing: false
+            isComposing: false,
+            isEmbedMode: false
         };
     },
     mounted() {
+        const params = new URLSearchParams(window.location.search);
+        this.isEmbedMode = params.get('embed') === '1';
         this.configureMarked();
         // 尝试从 localStorage 恢复用户ID
         const savedUserId = localStorage.getItem('userId');
@@ -229,6 +232,7 @@ createApp({
         },
         
         async handleHistory() {
+            if (this.isEmbedMode) return;
             this.activeNav = 'history';
             this.showHistorySidebar = true;
             try {

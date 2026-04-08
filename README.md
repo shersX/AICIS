@@ -74,6 +74,36 @@ docker compose logs -f standalone
 - 前端页面：`http://127.0.0.1:8000/`
 - API 文档：`http://127.0.0.1:8000/docs`
 
+### 6) 作为 iframe 右下角 Chatbot 嵌入
+
+项目已提供一行接入脚本：`frontend/embed.js`。
+
+接入方页面示例：
+
+```html
+<script>
+  window.AICIS_CHATBOT_CONFIG = {
+    baseUrl: "https://your-aicis-domain.com",
+    iframePath: "/",
+    iframeQuery: "embed=1",
+    title: "AICIS 智能助手",
+    icon: "🤖",
+    width: 380,
+    height: 640,
+    right: 20,
+    bottom: 20,
+    startOpen: false
+  };
+</script>
+<script src="https://your-aicis-domain.com/embed.js"></script>
+```
+
+说明：
+
+- `embed.js` 会自动创建右下角按钮 + 弹窗 iframe。
+- iframe 默认打开 `/?embed=1`，前端会进入轻量嵌入模式（隐藏侧栏与顶部栏）。
+- 如果部署了反向代理，请确认允许被 iframe 引用（避免 `X-Frame-Options: DENY` 或过严的 `Content-Security-Policy frame-ancestors`）。
+
 ## 项目概览
 
 - **核心能力**：

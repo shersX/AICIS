@@ -19,10 +19,10 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 </head>
 <body>
-    <div id="app" class="app-wrapper">
+    <div id="app" class="app-wrapper" :class="{ 'embed-mode': isEmbedMode }">
 
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside v-if="!isEmbedMode" class="sidebar">
             <div class="sidebar-header">
                 <div class="logo-icon">🧠</div>
                 <h2>AICIS助手</h2>
@@ -84,7 +84,7 @@
 
             <!-- Chat Area -->
             <div class="chat-area">
-                <header class="chat-header">
+                <header v-if="!isEmbedMode" class="chat-header">
                     <div class="header-info">
                         <div class="status-dot"></div>
                         <span>AICIS在线中...</span>
@@ -277,7 +277,7 @@
                         @compositionstart="handleCompositionStart"
                         @compositionend="handleCompositionEnd"
                         @input="autoResize"
-                        placeholder="和我说点什么吧... (Shift+Enter 换行)" 
+                        :placeholder="isEmbedMode ? '和我说点什么吧...' : '和我说点什么吧... (Shift+Enter 换行)'" 
                         rows="1"
                         ref="textarea"
                     ></textarea>
@@ -288,7 +288,7 @@
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
-                <div class="footer-text">AI 生成的内容可能包含错误，请仔细甄别。</div>
+                <div v-if="!isEmbedMode" class="footer-text">AI 生成的内容可能包含错误，请仔细甄别。</div>
             </div>
             <!-- End of Chat Area -->
         </main>
