@@ -23,6 +23,12 @@
         const normalizedBase = cfg.baseUrl.replace(/\/+$/, '');
         const normalizedPath = cfg.iframePath.startsWith('/') ? cfg.iframePath : `/${cfg.iframePath}`;
         const iframeSrc = `${normalizedBase}${normalizedPath}?${cfg.iframeQuery}`;
+        let postTargetOrigin = '*';
+        try {
+            postTargetOrigin = new URL(normalizedBase).origin;
+        } catch (_) {
+            /* keep * */
+        }
 
         const root = document.createElement('div');
         root.setAttribute('id', 'aicis-embed-root');
@@ -52,14 +58,42 @@
         const header = document.createElement('div');
         header.style.height = '40px';
         header.style.padding = '0 12px';
-        header.style.background = '#578873';
+        header.style.background = '#00b140';
         header.style.color = '#fff';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
         header.style.justifyContent = 'space-between';
         header.style.fontSize = '13px';
         header.style.fontWeight = '600';
-        header.textContent = cfg.title;
+        header.style.gap = '8px';
+
+        const titleEl = document.createElement('span');
+        titleEl.textContent = cfg.title;
+        titleEl.style.flex = '1';
+        titleEl.style.minWidth = '0';
+        titleEl.style.overflow = 'hidden';
+        titleEl.style.textOverflow = 'ellipsis';
+        titleEl.style.whiteSpace = 'nowrap';
+
+        const exportBtn = document.createElement('button');
+        exportBtn.type = 'button';
+        exportBtn.textContent = '📄 导出 PDF';
+        exportBtn.setAttribute('aria-label', '导出 PDF');
+        exportBtn.title = '导出当前对话为 PDF';
+        exportBtn.disabled = true;
+        exportBtn.style.display = 'inline-flex';
+        exportBtn.style.alignItems = 'center';
+        exportBtn.style.gap = '4px';
+        exportBtn.style.padding = '4px 10px';
+        exportBtn.style.border = '1px solid rgba(255, 255, 255, 0.55)';
+        exportBtn.style.borderRadius = '8px';
+        exportBtn.style.background = 'rgba(255, 255, 255, 0.18)';
+        exportBtn.style.color = '#fff';
+        exportBtn.style.fontSize = '12px';
+        exportBtn.style.fontWeight = '600';
+        exportBtn.style.cursor = 'pointer';
+        exportBtn.style.pointerEvents = 'auto';
+        exportBtn.style.flexShrink = '0';
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
@@ -73,6 +107,18 @@
         closeBtn.style.padding = '2px 6px';
         closeBtn.style.borderRadius = '6px';
         closeBtn.style.pointerEvents = 'auto';
+        closeBtn.style.flexShrink = '0';
+
+        const headerRight = document.createElement('div');
+        headerRight.style.display = 'flex';
+        headerRight.style.alignItems = 'center';
+        headerRight.style.gap = '6px';
+        headerRight.style.flexShrink = '0';
+        headerRight.appendChild(exportBtn);
+        headerRight.appendChild(closeBtn);
+
+        header.appendChild(titleEl);
+        header.appendChild(headerRight);
 
         const iframe = document.createElement('iframe');
         iframe.src = iframeSrc;
@@ -106,8 +152,33 @@
 
         launcher.addEventListener('click', () => togglePanel());
         closeBtn.addEventListener('click', () => togglePanel(false));
+        exportBtn.addEventListener('click', () => {
+            if (iframe.contentWindow) {
+                iframe.contentWindow.postMessage({ type: 'aicis-open-export' }, postTargetOrigin);
+            }
+        });
 
-        header.appendChild(closeBtn);
+        const syncExportBtnVisual = () => {
+            exportBtn.style.opacity = exportBtn.disabled ? '0.45' : '1';
+            exportBtn.style.cursor = exportBtn.disabled ? 'not-allowed' : 'pointer';
+        };
+        exportBtn.addEventListener('mouseenter', () => {
+            if (!exportBtn.disabled) exportBtn.style.background = 'rgba(255, 255, 255, 0.3)';
+        });
+        exportBtn.addEventListener('mouseleave', () => {
+            exportBtn.style.background = 'rgba(255, 255, 255, 0.18)';
+        });
+        syncExportBtnVisual();
+
+        window.addEventListener('message', (e) => {
+            if (e.source !== iframe.contentWindow) return;
+            if (e.data && e.data.type === 'aicis-export-state') {
+                const n = Number(e.data.count) || 0;
+                exportBtn.disabled = n < 1;
+                syncExportBtnVisual();
+            }
+        });
+
         panel.appendChild(header);
         panel.appendChild(iframe);
         root.appendChild(panel);

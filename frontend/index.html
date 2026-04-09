@@ -152,20 +152,6 @@
                     </button>
                 </header>
 
-                <header v-if="isEmbedMode" class="chat-header chat-header--embed">
-                    <span class="embed-chat-title">AICIS</span>
-                    <button
-                        type="button"
-                        class="header-export-btn header-export-btn--embed"
-                        title="导出当前对话为 PDF"
-                        :disabled="exportableRoundCount === 0"
-                        @click="openExportCurrent"
-                    >
-                        <i class="fas fa-file-pdf"></i>
-                        <span class="embed-export-text">导出 PDF</span>
-                    </button>
-                </header>
-
                 <div class="chat-container" ref="chatContainer">
                     <div v-if="messages.length === 0" class="welcome-screen">
                         <div class="big-avatar">🧠</div>

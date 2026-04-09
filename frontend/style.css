@@ -222,43 +222,6 @@ body {
     cursor: not-allowed;
 }
 
-/* 外接 iframe（embed）顶栏：保留导出，与浮窗风格协调 */
-.chat-header--embed {
-    padding: 10px 14px;
-    min-height: 0;
-    background: linear-gradient(90deg, #578873 0%, #4a7562 100%);
-    border-bottom: none;
-}
-
-.embed-chat-title {
-    font-size: 0.9rem;
-    font-weight: 700;
-    color: #fff;
-    letter-spacing: 0.02em;
-}
-
-.chat-header--embed .header-export-btn--embed {
-    border-color: rgba(255, 255, 255, 0.45);
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
-    padding: 6px 12px;
-    font-size: 0.82rem;
-    gap: 6px;
-}
-
-.chat-header--embed .header-export-btn--embed:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.22);
-    border-color: rgba(255, 255, 255, 0.65);
-}
-
-.chat-header--embed .header-export-btn--embed:disabled {
-    opacity: 0.4;
-}
-
-.chat-header--embed .embed-export-text {
-    font-weight: 600;
-}
-
 .icon-btn {
     background: none;
     border: none;

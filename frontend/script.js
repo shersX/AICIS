@@ -40,6 +40,15 @@ createApp({
         } else {
             localStorage.setItem('userId', this.userId);
         }
+        if (this.isEmbedMode && window.parent !== window) {
+            window.addEventListener('message', (e) => {
+                if (e.source !== window.parent) return;
+                if (e.data && e.data.type === 'aicis-open-export') {
+                    this.openExportCurrent();
+                }
+            });
+        }
+        this.notifyParentExportState();
     },
     methods: {
         configureMarked() {
@@ -365,6 +374,18 @@ createApp({
             this.openExportModalFromRounds(rounds, this.sessionId);
         },
 
+        notifyParentExportState() {
+            if (!this.isEmbedMode || window.parent === window) return;
+            try {
+                window.parent.postMessage(
+                    { type: 'aicis-export-state', count: this.exportableRoundCount },
+                    '*'
+                );
+            } catch (_) {
+                /* ignore */
+            }
+        },
+
         async openExportForSession(sid) {
             this.exportModalLoading = true;
             this.exportModalVisible = true;
@@ -553,6 +574,7 @@ createApp({
             handler() {
                 this.$nextTick(() => {
                     this.scrollToBottom();
+                    this.notifyParentExportState();
                 });
             },
             deep: true
