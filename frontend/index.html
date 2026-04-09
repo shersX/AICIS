@@ -71,12 +71,64 @@
                                 </div>
                             </div>
                         </div>
+                        <button
+                            type="button"
+                            class="history-export-btn"
+                            title="导出该会话为 PDF"
+                            @click.stop="openExportForSession(session.session_id)"
+                        >
+                            <i class="fas fa-file-pdf"></i>
+                        </button>
                         <button 
                             class="history-delete-btn"
                             title="删除会话"
                             @click.stop="deleteSession(session.session_id)"
                         >
                             <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导出 PDF：选择对话轮次 -->
+            <div v-if="exportModalVisible" class="export-modal-overlay" @click.self="onExportOverlayClick">
+                <div class="export-modal" role="dialog" aria-labelledby="export-modal-title">
+                    <div class="export-modal-header">
+                        <h3 id="export-modal-title">导出对话为 PDF</h3>
+                        <button type="button" class="export-modal-close" @click="closeExportModal" aria-label="关闭">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <p class="export-modal-hint">
+                        勾选要包含的问答轮次（仅正文，不含检索过程）。将打开打印窗口，请在打印机中选择<strong>「另存为 PDF」</strong>。
+                    </p>
+                    <p v-if="exportModalLoading" class="export-modal-loading">正在加载会话…</p>
+                    <div v-else-if="exportRounds.length === 0" class="export-modal-empty">没有可导出的对话轮次。</div>
+                    <div v-else class="export-rounds-list">
+                        <div class="export-rounds-toolbar">
+                            <button type="button" class="link-btn" @click="setAllExportRounds(true)">全选</button>
+                            <span class="toolbar-sep">|</span>
+                            <button type="button" class="link-btn" @click="setAllExportRounds(false)">全不选</button>
+                        </div>
+                        <label
+                            v-for="r in exportRounds"
+                            :key="r.index"
+                            class="export-round-row"
+                        >
+                            <input type="checkbox" v-model="r.selected" />
+                            <span class="export-round-label">第 {{ r.index + 1 }} 轮</span>
+                            <span class="export-round-preview">{{ truncateForPreview(r.userText) }}</span>
+                        </label>
+                    </div>
+                    <div class="export-modal-actions">
+                        <button type="button" class="btn-secondary" @click="closeExportModal">取消</button>
+                        <button
+                            type="button"
+                            class="btn-primary"
+                            :disabled="exportModalLoading || selectedExportRoundCount === 0"
+                            @click="confirmExportPdf"
+                        >
+                            保存PDF
                         </button>
                     </div>
                 </div>
@@ -89,6 +141,29 @@
                         <div class="status-dot"></div>
                         <span>AICIS在线中...</span>
                     </div>
+                    <button
+                        type="button"
+                        class="header-export-btn"
+                        title="导出当前会话为 PDF"
+                        :disabled="exportableRoundCount === 0"
+                        @click="openExportCurrent"
+                    >
+                        <i class="fas fa-file-pdf"></i> 导出 PDF
+                    </button>
+                </header>
+
+                <header v-if="isEmbedMode" class="chat-header chat-header--embed">
+                    <span class="embed-chat-title">AICIS</span>
+                    <button
+                        type="button"
+                        class="header-export-btn header-export-btn--embed"
+                        title="导出当前对话为 PDF"
+                        :disabled="exportableRoundCount === 0"
+                        @click="openExportCurrent"
+                    >
+                        <i class="fas fa-file-pdf"></i>
+                        <span class="embed-export-text">导出 PDF</span>
+                    </button>
                 </header>
 
                 <div class="chat-container" ref="chatContainer">
