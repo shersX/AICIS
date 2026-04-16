@@ -573,7 +573,6 @@ createApp({
         messages: {
             handler() {
                 this.$nextTick(() => {
-                    this.scrollToBottom();
                     this.notifyParentExportState();
                 });
             },

@@ -20,3 +20,5 @@ volumes/
 data/
 skills-lock.json
 temp.py
+scripts/
+eval/

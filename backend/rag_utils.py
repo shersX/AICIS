@@ -60,7 +60,6 @@ def _rerank_documents(query: str, docs: List[dict], top_k: int) -> Tuple[List[di
     }
     try:
         meta["rerank_applied"] = True
-        print(f"[RERANK] 请求 endpoint: {meta['rerank_endpoint']}")
         print(f"[RERANK] 请求 payload: model={RERANK_MODEL}, query={query}, docs_count={len(docs_with_rank)}")
         response = requests.post(
             meta["rerank_endpoint"],

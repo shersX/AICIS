@@ -187,7 +187,7 @@ def create_agent_instance():
         system_prompt=(
     "You are AICIS情报助手 that loves to help users. "
     "When responding, you may use tools to assist. "
-    "Use search_knowledge_base when users ask document/knowledge questions. "
+    "Use search_knowledge_base when users ask questions related to the pharmaceutical industry. "
     "Do not call the same tool repeatedly in one turn. At most one knowledge tool call per turn. "
     "Once you call search_knowledge_base and receive its result, you MUST immediately produce the Final Answer based on that result. "
     "After receiving search_knowledge_base result, you MUST NOT call any tool again (including get_current_weather or search_knowledge_base). "
@@ -199,15 +199,42 @@ def create_agent_instance():
     "Always respond in the same language as the user's latest message unless the user explicitly asks for another language. "
     "When presenting multiple facts, attach the corresponding source link right after each fact (inline citation), instead of listing all sources only at the end,with no omissions allowed. "
     "When providing information from retrieved documents, ALWAYS include the source URL in Markdown format. "
-    "Format sources as: [来源标题](URL) so users can click directly."
+    "Format sources as: [标题](URL) so users can click directly."
 ),
     )
     return agent, model
 
 
+_REQUIRED_ENV = {"ARK_API_KEY": API_KEY, "MODEL": MODEL, "BASE_URL": BASE_URL}
+_missing = [k for k, v in _REQUIRED_ENV.items() if not v]
+if _missing:
+    raise RuntimeError(
+        f"启动失败：以下环境变量缺失或为空：{', '.join(_missing)}。"
+        "请检查项目根目录的 .env 文件或系统环境变量配置。"
+    )
+
 agent, model = create_agent_instance()
 
 storage = ConversationStorage()
+
+
+def _agent_model_label() -> str:
+    """主对话模型在 LangChain 中的可读名称（与 rag_pipeline grader 日志风格对齐）。"""
+    try:
+        return (
+            getattr(model, "model_name", None)
+            or getattr(model, "model", None)
+            or MODEL
+            or "(unknown)"
+        )
+    except Exception:
+        return MODEL or "(unknown)"
+
+
+def _log_agent_model(phase: str) -> None:
+    """stderr：Agent / 摘要 环节使用的模型。"""
+    print(f"[AGENT] {phase} 当前模型：{_agent_model_label()}", file=sys.stderr)
+
 
 def summarize_old_messages(model, messages: list) -> str:
     """将旧消息总结为摘要"""
@@ -223,6 +250,7 @@ def summarize_old_messages(model, messages: list) -> str:
 {old_conversation}
 总结（包含用户信息、重要事实、待办事项）："""
 
+    _log_agent_model("历史摘要")
     summary = model.invoke(summary_prompt).content
     return summary
 
@@ -241,6 +269,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
     messages.append(HumanMessage(content=user_text))
     invoke_messages = [_current_date_system_message()] + messages
+    _log_agent_model("对话生成（非流式）")
     result = agent.invoke(
         {"messages": invoke_messages},
         config={
@@ -313,6 +342,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         nonlocal full_response
         try:
             print(f"[AGENT_WORKER] 开始执行 agent", file=sys.stderr)
+            _log_agent_model("对话生成（流式）")
             async for msg, metadata in agent.astream(
                 {"messages": invoke_messages},
                 stream_mode="messages",
