@@ -135,14 +135,34 @@
         launcher.style.width = '58px';
         launcher.style.height = '58px';
         launcher.style.borderRadius = '50%';
-        launcher.style.border = 'none';
+        launcher.style.border = '4px solid #fff';
         launcher.style.cursor = 'pointer';
-        launcher.style.background = '#e9f5eb';
+        launcher.style.background = '#c8e2fe';
         launcher.style.color = '#fff';
         launcher.style.fontSize = '24px';
         launcher.style.boxShadow = '0 10px 26px rgba(45, 106, 79, 0.4)';
         launcher.style.pointerEvents = 'auto';
         launcher.textContent = cfg.icon;
+
+        const hoverTooltip = document.createElement('div');
+        hoverTooltip.textContent = 'AICIS智能问答';
+        hoverTooltip.style.padding = '6px 10px';
+        hoverTooltip.style.marginBottom = '8px';
+        hoverTooltip.style.borderRadius = '8px';
+        hoverTooltip.style.background = 'rgba(0, 0, 0, 0.75)';
+        hoverTooltip.style.color = '#fff';
+        hoverTooltip.style.fontSize = '12px';
+        hoverTooltip.style.lineHeight = '1';
+        hoverTooltip.style.whiteSpace = 'nowrap';
+        hoverTooltip.style.pointerEvents = 'none';
+        hoverTooltip.style.opacity = '0';
+        hoverTooltip.style.visibility = 'hidden';
+        hoverTooltip.style.transition = 'opacity 0.15s ease';
+
+        const toggleTooltip = (show) => {
+            hoverTooltip.style.opacity = show ? '1' : '0';
+            hoverTooltip.style.visibility = show ? 'visible' : 'hidden';
+        };
 
         const togglePanel = (open) => {
             const show = typeof open === 'boolean' ? open : panel.style.display === 'none';
@@ -150,7 +170,14 @@
             launcher.setAttribute('aria-expanded', show ? 'true' : 'false');
         };
 
-        launcher.addEventListener('click', () => togglePanel());
+        launcher.addEventListener('click', () => {
+            toggleTooltip(false);
+            togglePanel();
+        });
+        launcher.addEventListener('mouseenter', () => toggleTooltip(true));
+        launcher.addEventListener('mouseleave', () => toggleTooltip(false));
+        launcher.addEventListener('focus', () => toggleTooltip(true));
+        launcher.addEventListener('blur', () => toggleTooltip(false));
         closeBtn.addEventListener('click', () => togglePanel(false));
         exportBtn.addEventListener('click', () => {
             if (iframe.contentWindow) {
@@ -182,6 +209,7 @@
         panel.appendChild(header);
         panel.appendChild(iframe);
         root.appendChild(panel);
+        root.appendChild(hoverTooltip);
         root.appendChild(launcher);
         document.body.appendChild(root);
 
