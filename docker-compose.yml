@@ -95,6 +95,40 @@ services:
         condition: service_healthy
     networks:
       - default
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  migrate:
+    container_name: aicis-migrate
+    # 复用 backend 构建出来的同一个镜像，无需重复构建
+    image: aicis-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MILVUS_HOST: standalone
+      MILVUS_PORT: "19530"
+    volumes:
+      # 共享 data 目录，内含 bm25_state.json 等迁移状态文件
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/data:/app/data
+    # 定时增量迁移 MongoDB -> Milvus，对应原来的:
+    # nohup python backend/migrate_news.py --mode schedule > ~/logs/migrate_news.log 2>&1 &
+    command: ["python", "backend/migrate_news.py", "--mode", "schedule"]
+    depends_on:
+      standalone:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - default
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
 
 networks:
   default:
