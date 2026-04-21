@@ -72,6 +72,30 @@ services:
     networks:
       - default  
 
+  backend:
+    container_name: aicis-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aicis-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 覆盖 .env 里的 127.0.0.1，指向 compose 内部的 Milvus 服务
+      MILVUS_HOST: standalone
+      MILVUS_PORT: "19530"
+    ports:
+      - "8000:8000"
+    volumes:
+      # 持久化会话历史（backend/agent.py 默认写入 /app/data/customer_service_history.json）
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/data:/app/data
+    depends_on:
+      standalone:
+        condition: service_healthy
+    networks:
+      - default
+
 networks:
   default:
     name: milvus

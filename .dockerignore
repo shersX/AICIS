@@ -1,0 +1,49 @@
+# Virtual environments
+.venv
+.python-version
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Local-only assets (not needed in image)
+volumes
+data
+eval
+scripts
+
+# Editor / agent metadata
+.agents
+.trae
+.cursor
+.vscode
+.idea
+
+# Secrets: never COPY into image; runtime injected via env_file
+.env
+.env.*
+!.env.example
+
+# Python caches / build artifacts
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+build
+dist
+wheels
+
+# Docs / misc
+README.md
+*.md
+!backend/**/*.md
+temp.py
+skills-lock.json
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose*.yml
