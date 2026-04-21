@@ -11,7 +11,7 @@
         width: 380,
         height: 640,
         right: 20,
-        bottom: 20,
+        bottom: 48,
         zIndex: 2147483000,
         startOpen: false,
     };
