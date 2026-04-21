@@ -117,6 +117,9 @@ services:
     # 定时增量迁移 MongoDB -> Milvus，对应原来的:
     # nohup python backend/migrate_news.py --mode schedule > ~/logs/migrate_news.log 2>&1 &
     command: ["python", "backend/migrate_news.py", "--mode", "schedule"]
+    # migrate 不对外提供 HTTP，禁用从 Dockerfile 继承的 HTTP healthcheck
+    healthcheck:
+      disable: true
     depends_on:
       standalone:
         condition: service_healthy
