@@ -7,7 +7,7 @@ createApp({
             userInput: '',
             isLoading: false,
             activeNav: 'newChat',
-            API_URL: '/chat',
+            API_URL: 'chat',
             abortController: null,
             userId: 'user_' + Math.random().toString(36).substring(2, 11),
             sessionId: 'session_' + Date.now(),
@@ -136,7 +136,7 @@ createApp({
             this.abortController = new AbortController();
 
             try {
-                const response = await fetch('/chat/stream', {
+                const response = await fetch('chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -257,7 +257,7 @@ createApp({
             this.activeNav = 'history';
             this.showHistorySidebar = true;
             try {
-                const response = await fetch(`/sessions/${this.userId}`);
+                const response = await fetch(`sessions/${this.userId}`);
                 if (!response.ok) {
                     throw new Error('Failed to load sessions');
                 }
@@ -276,7 +276,7 @@ createApp({
             
             // 从后端加载历史消息
             try {
-                const response = await fetch(`/sessions/${this.userId}/${sessionId}`);
+                const response = await fetch(`sessions/${this.userId}/${sessionId}`);
                 if (!response.ok) {
                     throw new Error('Failed to load session messages');
                 }
@@ -392,7 +392,7 @@ createApp({
             this.exportRounds = [];
             this.exportSessionLabel = sid;
             try {
-                const response = await fetch(`/sessions/${this.userId}/${sid}`);
+                const response = await fetch(`sessions/${this.userId}/${sid}`);
                 if (!response.ok) throw new Error('无法加载会话');
                 const data = await response.json();
                 const ui = this.apiMessagesToUiMessages(data.messages);
@@ -543,7 +543,7 @@ createApp({
             }
 
             try {
-                const response = await fetch(`/sessions/${this.userId}/${sessionId}`, {
+                const response = await fetch(`sessions/${this.userId}/${sessionId}`, {
                     method: 'DELETE'
                 });
 
