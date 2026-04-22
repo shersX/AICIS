@@ -22,20 +22,16 @@ router = APIRouter()
 async def get_session_messages(user_id: str, session_id: str):
     """获取指定会话的所有消息"""
     try:
-        data = storage._load()
-        if user_id not in data or session_id not in data[user_id]:
-            return SessionMessagesResponse(messages=[])
-        
-        session_data = data[user_id][session_id]
-        messages = []
-        for msg_data in session_data.get("messages", []):
-            messages.append(MessageInfo(
-                type=msg_data["type"],
-                content=msg_data["content"],
-                timestamp=msg_data["timestamp"],
-                rag_trace=msg_data.get("rag_trace")
-            ))
-        
+        items = storage.get_session_messages_with_trace(user_id, session_id)
+        messages = [
+            MessageInfo(
+                type=i["type"],
+                content=i["content"],
+                timestamp=i.get("timestamp") or "",
+                rag_trace=i.get("rag_trace"),
+            )
+            for i in items
+        ]
         return SessionMessagesResponse(messages=messages)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -45,20 +41,15 @@ async def get_session_messages(user_id: str, session_id: str):
 async def list_sessions(user_id: str):
     """获取用户的所有会话列表"""
     try:
-        data = storage._load()
-        if user_id not in data:
-            return SessionListResponse(sessions=[])
-        
-        sessions = []
-        for session_id, session_data in data[user_id].items():
-            sessions.append(SessionInfo(
-                session_id=session_id,
-                updated_at=session_data.get("updated_at", ""),
-                message_count=len(session_data.get("messages", []))
-            ))
-        
-        # 按更新时间倒序排列
-        sessions.sort(key=lambda x: x.updated_at, reverse=True)
+        rows = storage.list_sessions_with_info(user_id)
+        sessions = [
+            SessionInfo(
+                session_id=r["session_id"],
+                updated_at=r.get("updated_at") or "",
+                message_count=r.get("message_count") or 0,
+            )
+            for r in rows
+        ]
         return SessionListResponse(sessions=sessions)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

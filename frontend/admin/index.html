@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AICIS · 问答日志后台</title>
+    <link rel="stylesheet" href="admin.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+<div id="app" v-cloak>
+    <!-- 登录视图 -->
+    <div class="login-wrap" v-if="!authed">
+        <form class="login-card" @submit.prevent="doLogin">
+            <h1>AICIS 问答日志</h1>
+            <p class="login-tip">请输入后台访问 Token</p>
+            <input
+                type="password"
+                v-model="tokenInput"
+                placeholder="ADMIN_TOKEN"
+                autocomplete="off"
+                autofocus
+            >
+            <button type="submit" :disabled="loggingIn">{{ loggingIn ? '校验中…' : '进入后台' }}</button>
+            <p class="login-err" v-if="loginErr">{{ loginErr }}</p>
+        </form>
+    </div>
+
+    <!-- 主视图 -->
+    <div class="app-shell" v-else>
+        <header class="app-header">
+            <div class="brand">
+                <span class="brand-dot"></span>
+                <span>AICIS · 问答日志后台</span>
+            </div>
+            <nav class="top-tabs">
+                <button :class="{active: tab==='logs'}" @click="switchTab('logs')">问答日志</button>
+                <button :class="{active: tab==='sessions'}" @click="switchTab('sessions')">会话列表</button>
+                <button :class="{active: tab==='stats'}" @click="switchTab('stats')">总览</button>
+            </nav>
+            <div class="header-right">
+                <span class="sample-user" v-if="viewingUser">当前过滤用户：<code>{{ viewingUser }}</code>
+                    <button class="link-btn" @click="clearUserFilter">清除</button>
+                </span>
+                <button class="logout-btn" @click="logout">退出</button>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <!-- 问答日志 -->
+            <section v-if="tab==='logs'" class="panel">
+                <div class="filters">
+                    <input v-model="logsFilters.q" placeholder="关键词（匹配正文）" @keydown.enter="reloadLogs">
+                    <input v-model="logsFilters.user_id" placeholder="user_id">
+                    <input v-model="logsFilters.session_id" placeholder="session_id">
+                    <input v-model="logsFilters.model" placeholder="模型（精确）">
+                    <select v-model="logsFilters.role">
+                        <option value="">全部角色</option>
+                        <option value="user">user（用户问）</option>
+                        <option value="assistant">assistant（AI 答）</option>
+                        <option value="system">system（摘要）</option>
+                    </select>
+                    <select v-model="logsFilters.status">
+                        <option value="">全部状态</option>
+                        <option value="ok">ok</option>
+                        <option value="error">error</option>
+                    </select>
+                    <select v-model="logsFilters.range" title="时间范围" @change="reloadLogs">
+                        <option value="all">至今（全部）</option>
+                        <option value="7d">过去 7 天</option>
+                        <option value="4w">过去 4 周</option>
+                        <option value="6m">过去半年</option>
+                    </select>
+                    <button class="btn-primary" @click="reloadLogs">查询</button>
+                    <button class="btn-secondary" @click="resetLogsFilters">重置</button>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                        <tr>
+                            <th style="width:150px">时间</th>
+                            <th style="width:160px">用户</th>
+                            <th style="width:160px">会话</th>
+                            <th style="width:80px">角色</th>
+                            <th>内容</th>
+                            <th style="width:180px">模型</th>
+                            <th style="width:80px">耗时</th>
+                            <th style="width:80px">状态</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr v-if="logsLoading"><td colspan="8" class="empty-row">加载中…</td></tr>
+                        <tr v-else-if="logsData.items.length===0"><td colspan="8" class="empty-row">没有数据</td></tr>
+                        <tr v-else
+                            v-for="row in logsData.items"
+                            :key="row.id"
+                            :class="['row-clickable', row.status==='error' ? 'row-error' : '']"
+                            @click="openLogDetail(row)"
+                        >
+                            <td>{{ formatTime(row.created_at) }}</td>
+                            <td><code class="mono id-cell" :title="row.user_id">{{ row.user_id }}</code></td>
+                            <td><code class="mono id-cell" :title="row.session_id">{{ row.session_id }}</code></td>
+                            <td>{{ roleLabel(row.role) }}</td>
+                            <td class="cell-content">
+                                <div class="content-preview">{{ previewText(row.content) }}</div>
+                                <span v-if="row.has_rag_trace" class="tag tag-trace">RAG</span>
+                            </td>
+                            <td class="mono">{{ row.model || '—' }}</td>
+                            <td>{{ row.latency_ms != null ? row.latency_ms + 'ms' : '—' }}</td>
+                            <td>
+                                <span :class="['status-chip', row.status==='error' ? 'chip-error' : 'chip-ok']">{{ row.status }}</span>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" v-if="logsData.total>0">
+                    <span>共 {{ logsData.total }} 条</span>
+                    <button @click="gotoLogsPage(logsData.page-1)" :disabled="logsData.page<=1">上一页</button>
+                    <span>{{ logsData.page }} / {{ totalPages(logsData) }}</span>
+                    <button @click="gotoLogsPage(logsData.page+1)" :disabled="logsData.page>=totalPages(logsData)">下一页</button>
+                    <select v-model.number="logsFilters.page_size" @change="reloadLogs">
+                        <option :value="20">20/页</option>
+                        <option :value="50">50/页</option>
+                        <option :value="100">100/页</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- 会话列表 -->
+            <section v-if="tab==='sessions'" class="panel">
+                <div class="filters">
+                    <input v-model="sessionsFilters.q" placeholder="标题关键词" @keydown.enter="reloadSessions">
+                    <input v-model="sessionsFilters.user_id" placeholder="user_id">
+                    <select v-model="sessionsFilters.range" title="时间范围" @change="reloadSessions">
+                        <option value="all">至今（全部）</option>
+                        <option value="7d">过去 7 天</option>
+                        <option value="4w">过去 4 周</option>
+                        <option value="6m">过去半年</option>
+                    </select>
+                    <button class="btn-primary" @click="reloadSessions">查询</button>
+                    <button class="btn-secondary" @click="resetSessionsFilters">重置</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                        <tr>
+                            <th style="width:160px">最后更新</th>
+                            <th style="width:160px">用户</th>
+                            <th style="width:160px">会话</th>
+                            <th>标题（首问预览）</th>
+                            <th style="width:80px">消息数</th>
+                            <th style="width:160px">创建时间</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr v-if="sessionsLoading"><td colspan="6" class="empty-row">加载中…</td></tr>
+                        <tr v-else-if="sessionsData.items.length===0"><td colspan="6" class="empty-row">没有数据</td></tr>
+                        <tr v-else
+                            v-for="row in sessionsData.items"
+                            :key="row.session_id"
+                            class="row-clickable"
+                            @click="openSessionDetail(row)"
+                        >
+                            <td>{{ formatTime(row.updated_at) }}</td>
+                            <td><code class="mono id-cell" :title="row.user_id">{{ row.user_id }}</code></td>
+                            <td><code class="mono id-cell" :title="row.session_id">{{ row.session_id }}</code></td>
+                            <td class="cell-content">
+                                <div class="content-preview">{{ row.title || '（无）' }}</div>
+                            </td>
+                            <td>{{ row.message_count }}</td>
+                            <td>{{ formatTime(row.created_at) }}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" v-if="sessionsData.total>0">
+                    <span>共 {{ sessionsData.total }} 条</span>
+                    <button @click="gotoSessionsPage(sessionsData.page-1)" :disabled="sessionsData.page<=1">上一页</button>
+                    <span>{{ sessionsData.page }} / {{ totalPages(sessionsData) }}</span>
+                    <button @click="gotoSessionsPage(sessionsData.page+1)" :disabled="sessionsData.page>=totalPages(sessionsData)">下一页</button>
+                    <select v-model.number="sessionsFilters.page_size" @change="reloadSessions">
+                        <option :value="20">20/页</option>
+                        <option :value="50">50/页</option>
+                        <option :value="100">100/页</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- 总览 -->
+            <section v-if="tab==='stats'" class="panel stats-panel">
+                <div v-if="statsLoading">加载中…</div>
+                <template v-else-if="stats">
+                    <div class="stat-cards">
+                        <div class="stat-card">
+                            <div class="stat-label">会话总数</div>
+                            <div class="stat-value">{{ stats.total_sessions }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">消息总数</div>
+                            <div class="stat-value">{{ stats.total_messages }}</div>
+                        </div>
+                        <div class="stat-card stat-card-error">
+                            <div class="stat-label">错误消息</div>
+                            <div class="stat-value">{{ stats.total_errors }}</div>
+                        </div>
+                    </div>
+                    <div class="daily-section">
+                        <h3>最近 7 天每日消息量</h3>
+                        <table class="data-table">
+                            <thead>
+                            <tr><th style="width:160px">日期</th><th>消息数</th></tr>
+                            </thead>
+                            <tbody>
+                            <tr v-for="d in stats.daily_messages" :key="d.day">
+                                <td>{{ d.day }}</td>
+                                <td>
+                                    <div class="bar" :style="{width: Math.min(100, d.count/Math.max(1, maxDaily)*100) + '%'}"></div>
+                                    <span class="bar-count">{{ d.count }}</span>
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </template>
+            </section>
+        </main>
+
+        <!-- 消息详情侧滑 -->
+        <aside class="drawer" v-if="logDetail" @click.self="closeLogDetail">
+            <div class="drawer-panel">
+                <div class="drawer-header">
+                    <h2>问答详情</h2>
+                    <button class="close-btn" @click="closeLogDetail">✕</button>
+                </div>
+                <div class="drawer-body">
+                    <div class="kv-grid">
+                        <div class="kv"><span>消息 ID</span><code>{{ logDetail.id }}</code></div>
+                        <div class="kv"><span>时间</span><code>{{ formatTime(logDetail.created_at) }}</code></div>
+                        <div class="kv"><span>用户</span><code class="mono">{{ logDetail.user_id }}</code></div>
+                        <div class="kv"><span>会话</span>
+                            <code class="mono">{{ logDetail.session_id }}</code>
+                            <button class="link-btn" @click="openSessionById(logDetail.session_id)">查看整段会话</button>
+                        </div>
+                        <div class="kv"><span>角色</span><code>{{ roleLabel(logDetail.role) }}</code></div>
+                        <div class="kv" v-if="logDetail.model"><span>模型</span><code class="mono">{{ logDetail.model }}</code></div>
+                        <div class="kv" v-if="logDetail.latency_ms != null"><span>耗时</span><code>{{ logDetail.latency_ms }} ms</code></div>
+                        <div class="kv"><span>状态</span>
+                            <span :class="['status-chip', logDetail.status==='error' ? 'chip-error' : 'chip-ok']">{{ logDetail.status }}</span>
+                        </div>
+                    </div>
+
+                    <div v-if="logDetail.status==='error' && logDetail.error_message" class="error-block">
+                        <h3>错误详情</h3>
+                        <pre>{{ logDetail.error_message }}</pre>
+                    </div>
+
+                    <div class="section-block">
+                        <h3>正文</h3>
+                        <div v-if="logDetail.role==='assistant'" class="markdown-body" v-html="renderMarkdown(logDetail.content)"></div>
+                        <pre v-else class="plain-body">{{ logDetail.content }}</pre>
+                    </div>
+
+                    <div class="section-block" v-if="logDetail.rag_trace">
+                        <h3>RAG 追踪</h3>
+                        <rag-trace-viewer :trace="logDetail.rag_trace"></rag-trace-viewer>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 会话详情侧滑 -->
+        <aside class="drawer" v-if="sessionDetail" @click.self="closeSessionDetail">
+            <div class="drawer-panel drawer-panel-wide">
+                <div class="drawer-header">
+                    <h2>会话详情</h2>
+                    <button class="close-btn" @click="closeSessionDetail">✕</button>
+                </div>
+                <div class="drawer-body">
+                    <div class="kv-grid">
+                        <div class="kv"><span>会话 ID</span><code class="mono">{{ sessionDetail.session.session_id }}</code></div>
+                        <div class="kv"><span>用户</span>
+                            <code class="mono">{{ sessionDetail.session.user_id }}</code>
+                            <button class="link-btn" @click="filterByUser(sessionDetail.session.user_id)">按此用户筛选日志</button>
+                        </div>
+                        <div class="kv"><span>标题</span><span>{{ sessionDetail.session.title || '（无）' }}</span></div>
+                        <div class="kv"><span>消息数</span><code>{{ sessionDetail.session.message_count }}</code></div>
+                        <div class="kv"><span>创建</span><code>{{ formatTime(sessionDetail.session.created_at) }}</code></div>
+                        <div class="kv"><span>最后更新</span><code>{{ formatTime(sessionDetail.session.updated_at) }}</code></div>
+                    </div>
+
+                    <div class="section-block">
+                        <h3>消息序列</h3>
+                        <div class="msg-list">
+                            <div
+                                v-for="m in sessionDetail.messages"
+                                :key="m.id"
+                                :class="['msg-item', 'msg-' + m.role, m.status==='error' ? 'msg-error' : '']"
+                            >
+                                <div class="msg-meta">
+                                    <span class="msg-role">{{ roleLabel(m.role) }}</span>
+                                    <span class="msg-time">{{ formatTime(m.created_at) }}</span>
+                                    <span v-if="m.model" class="msg-model">{{ m.model }}</span>
+                                    <span v-if="m.latency_ms != null" class="msg-lat">{{ m.latency_ms }}ms</span>
+                                    <span v-if="m.status==='error'" class="chip-error status-chip">error</span>
+                                </div>
+                                <div v-if="m.role==='assistant'" class="markdown-body msg-body" v-html="renderMarkdown(m.content)"></div>
+                                <pre v-else class="plain-body msg-body">{{ m.content }}</pre>
+                                <div v-if="m.rag_trace" class="msg-trace">
+                                    <details>
+                                        <summary>RAG 追踪</summary>
+                                        <rag-trace-viewer :trace="m.rag_trace"></rag-trace-viewer>
+                                    </details>
+                                </div>
+                                <div v-if="m.status==='error' && m.error_message" class="error-block inline">
+                                    <pre>{{ m.error_message }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+<script src="admin.js"></script>
+</body>
+</html>

@@ -74,7 +74,39 @@ docker compose logs -f standalone
 - 前端页面：`http://127.0.0.1:8000/`
 - API 文档：`http://127.0.0.1:8000/docs`
 
-### 6) 作为 iframe 右下角 Chatbot 嵌入
+### 6) 后台问答日志（Admin）
+
+系统内置了一个类 Dify 的问答日志后台，所有用户的 Q&A、RAG 召回细节、异常与耗时都会写入 SQLite（`data/aicis.db`），可按用户 / 会话 / 时间 / 关键词 / 状态 追溯。
+
+**启用步骤：**
+
+1. 在 `.env` 中设置 `ADMIN_TOKEN`（任意强随机字符串），**未设置时 `/admin/*` 接口会全部返回 503**，防止裸奔。
+2. 启动服务后，浏览器访问 `http://127.0.0.1:8000/admin/`，输入 Token 即可进入后台。
+3. 若是从旧版本（JSON 落盘）升级而来，首次启动前执行迁移脚本（只需一次）：
+
+   ```bash
+   python -m scripts.migrate_json_to_sqlite
+   # 如有冲突想覆盖：--force
+   # 指定源文件：--src data/customer_service_history.json
+   ```
+
+   脚本只迁移，不删除 JSON 文件（保留做回滚凭证）。新功能（状态、模型、耗时）在迁移记录上会为空，之后新产生的记录会正常带上。
+
+**后台功能：**
+
+- 问答日志：按关键词 / user_id / session_id / 模型 / 角色 / 状态 / 时间范围 过滤，点击任一行查看完整 Q、完整 A（Markdown 渲染）、模型、耗时、错误信息，以及 RAG 改写链 / 初次与扩展召回 chunks / rerank 详情。
+- 会话列表：按用户查看所有会话及其首问预览、消息数，点击进入可按时序阅读整段对话（每条消息都附带各自的 RAG 追踪）。
+- 总览：会话总数、消息总数、错误总数、最近 N 天每日消息量。
+
+**对应 API**（均需 `Authorization: Bearer <ADMIN_TOKEN>`）：
+
+- `GET /admin/ping` · `GET /admin/stats?days=7`
+- `GET /admin/logs?user_id=&session_id=&model=&status=&role=&q=&start=&end=&page=&page_size=`
+- `GET /admin/logs/{message_id}`
+- `GET /admin/sessions?user_id=&q=&start=&end=&page=&page_size=`
+- `GET /admin/sessions/{session_id}`
+
+### 7) 作为 iframe 右下角 Chatbot 嵌入
 
 项目已提供一行接入脚本：`frontend/embed.js`。
 
@@ -162,9 +194,11 @@ docker compose logs -f standalone
 ## 目录与架构
 
 - 后端：`backend/`
-  - [app.py](backend/app.py)：FastAPI 入口、CORS、静态资源挂载。
+  - [app.py](backend/app.py)：FastAPI 入口、CORS、静态资源挂载、启动时建表。
   - [api.py](backend/api.py)：聊天、会话管理接口。
-  - [agent.py](backend/agent.py)：LangChain Agent、会话存储、摘要逻辑。
+  - [admin_api.py](backend/admin_api.py)：后台日志接口（`/admin/*`），需 `ADMIN_TOKEN`。
+  - [agent.py](backend/agent.py)：LangChain Agent、会话存储（SQLite）、摘要逻辑。
+  - [db.py](backend/db.py)：SQLite 持久化层，sessions / messages 两张表 + 后台查询函数。
   - [tools.py](backend/tools.py)：知识库检索工具。
   - [embedding.py](backend/embedding.py)：稠密向量 API 调用 + BM25 稀疏向量生成。
   - [milvus_client.py](backend/milvus_client.py)：Milvus 集合定义、混合检索。
@@ -174,8 +208,12 @@ docker compose logs -f standalone
   - [migrate_news.py](backend/migrate_news.py)：MongoDB 新闻数据迁移到 Milvus。
 - 前端：`frontend/`
   - [index.html](frontend/index.html) + [script.js](frontend/script.js) + [style.css](frontend/style.css)：Vue 3 + marked + highlight.js，提供聊天、历史会话界面。
+  - `frontend/admin/`：后台日志页（独立 Vue 3 SPA，包含登录、日志列表、会话列表、总览、详情抽屉）。
+- 脚本：`scripts/`
+  - [scripts/migrate_json_to_sqlite.py](scripts/migrate_json_to_sqlite.py)：旧版 JSON 会话存储一次性迁移到 SQLite。
 - 数据：`data/`
-  - `customer_service_history.json`：会话落盘存储（由 [agent.py](backend/agent.py) 中 `ConversationStorage` 写入）。
+  - `aicis.db`：SQLite 数据库，保存全部会话与消息（含 `rag_trace_json` / `status` / `error_message` / `latency_ms`）。
+  - `customer_service_history.json`：旧版 JSON 存储（已停用，保留做回滚凭证）。
   - `bm25_state.json`：BM25 语料统计持久化（[embedding.py](backend/embedding.py) 中 `SiliconFlowEmbedding` 默认路径）。
 - 向量库：Milvus（可由 `docker-compose` 或自建服务提供）。
 
@@ -263,9 +301,10 @@ flowchart TD
 
 ### 4) 会话记忆链路
 
-1. 每轮问答按 `user_id/session_id` 写入 `data/customer_service_history.json`。
-2. 当单会话消息数超过 **50** 条时，对前 **40** 条做摘要并替换为一条 `SystemMessage` 摘要 + 保留后续消息（见 `chat_with_agent` / `chat_with_agent_stream`）。
-3. 前端通过会话列表与消息接口读取、删除历史；`userId` 可持久化在 `localStorage`（[frontend/script.js](frontend/script.js)）。
+1. 每轮问答按 `user_id/session_id` 写入 SQLite（`data/aicis.db`，两张表：`sessions` + `messages`）。写入在事务内「upsert session + 全量重写 messages」，并开启 WAL，允许并发读。
+2. 每条 assistant 消息还会一并记录 `model` / `latency_ms` / `status` / `error_message` / 完整 `rag_trace_json`，供后台日志页追溯。
+3. 当单会话消息数超过 **50** 条时，对前 **40** 条做摘要并替换为一条 `SystemMessage` 摘要 + 保留后续消息（见 `chat_with_agent` / `chat_with_agent_stream`）。
+4. 前端通过会话列表与消息接口读取、删除历史；`userId` 可持久化在 `localStorage`（[frontend/script.js](frontend/script.js)）。
 
 ## 技术栈
 
@@ -290,14 +329,24 @@ flowchart TD
 | Rerank  | `RERANK_MODEL`、`RERANK_BINDING_HOST`、`RERANK_API_KEY`             | [rag_utils.py](backend/rag_utils.py)，不配则跳过精排                                                                                            |
 | Milvus  | `MILVUS_HOST`、`MILVUS_PORT`、`MILVUS_DATABASE`、`MILVUS_COLLECTION` | [milvus_client.py](backend/milvus_client.py)，未设置时有代码内默认值                                                                                |
 | 新闻迁移    | `MONGODB`_* 等                                                     | [migrate_news.py](backend/migrate_news.py)                                                                                              |
+| 后台日志    | `ADMIN_TOKEN`、`SQLITE_PATH`（可选）                                   | [admin_api.py](backend/admin_api.py) 鉴权 Token；SQLite 路径默认 `data/aicis.db`                                                                |
 
 ## API 速览
+
+**聊天与会话：**
 
 - `POST /chat`：聊天（非流式），入参 `message`、`user_id`、`session_id`。
 - `POST /chat/stream`：聊天（流式 SSE），入参同上，返回 `text/event-stream`。
 - `GET /sessions/{user_id}`：列出会话。
 - `GET /sessions/{user_id}/{session_id}`：拉取某会话消息。
 - `DELETE /sessions/{user_id}/{session_id}`：删除会话。
+
+**后台日志（`Authorization: Bearer <ADMIN_TOKEN>`）：**
+
+- `GET /admin/ping` · `GET /admin/stats`
+- `GET /admin/logs`、`GET /admin/logs/{message_id}`
+- `GET /admin/sessions`、`GET /admin/sessions/{session_id}`
+- UI 入口：`GET /admin/`
 
 ## 流式输出与实时检索过程 — 技术细节
 
