@@ -11,7 +11,7 @@
         width: 380,
         height: 640,
         right: 20,
-        bottom: 48,
+        bottom: 20,
         zIndex: 2147483000,
         startOpen: false,
     };
@@ -47,7 +47,7 @@
         panel.style.height = `${cfg.height}px`;
         panel.style.maxWidth = 'calc(100vw - 20px)';
         panel.style.maxHeight = 'calc(100vh - 92px)';
-        panel.style.marginBottom = '12px';
+        panel.style.marginBottom = '8px';
         panel.style.borderRadius = '16px';
         panel.style.overflow = 'hidden';
         panel.style.background = '#fff';
@@ -58,8 +58,10 @@
         const header = document.createElement('div');
         header.style.height = '40px';
         header.style.padding = '0 12px';
-        header.style.background = '#00b140';
-        header.style.color = '#fff';
+        header.style.background = '#ffffff';
+        header.style.color = '#111111';
+        header.style.borderBottom = '1px solid #e0e0e0';
+        header.style.boxSizing = 'border-box';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
         header.style.justifyContent = 'space-between';
@@ -74,6 +76,7 @@
         titleEl.style.overflow = 'hidden';
         titleEl.style.textOverflow = 'ellipsis';
         titleEl.style.whiteSpace = 'nowrap';
+        titleEl.style.color = '#111111';
 
         const exportBtn = document.createElement('button');
         exportBtn.type = 'button';
@@ -85,10 +88,10 @@
         exportBtn.style.alignItems = 'center';
         exportBtn.style.gap = '4px';
         exportBtn.style.padding = '4px 10px';
-        exportBtn.style.border = '1px solid rgba(255, 255, 255, 0.55)';
+        exportBtn.style.border = '1px solid #cccccc';
         exportBtn.style.borderRadius = '8px';
-        exportBtn.style.background = 'rgba(255, 255, 255, 0.18)';
-        exportBtn.style.color = '#fff';
+        exportBtn.style.background = '#f5f5f5';
+        exportBtn.style.color = '#333333';
         exportBtn.style.fontSize = '12px';
         exportBtn.style.fontWeight = '600';
         exportBtn.style.cursor = 'pointer';
@@ -101,7 +104,7 @@
         closeBtn.setAttribute('aria-label', '关闭聊天窗口');
         closeBtn.style.border = 'none';
         closeBtn.style.background = 'transparent';
-        closeBtn.style.color = '#fff';
+        closeBtn.style.color = '#444444';
         closeBtn.style.cursor = 'pointer';
         closeBtn.style.fontSize = '14px';
         closeBtn.style.padding = '2px 6px';
@@ -144,10 +147,18 @@
         launcher.style.pointerEvents = 'auto';
         launcher.textContent = cfg.icon;
 
+        const launcherWrap = document.createElement('div');
+        launcherWrap.style.position = 'relative';
+        launcherWrap.style.alignSelf = 'flex-end';
+        launcherWrap.style.pointerEvents = 'none';
+
         const hoverTooltip = document.createElement('div');
         hoverTooltip.textContent = 'AICIS智能问答';
+        hoverTooltip.style.position = 'absolute';
+        hoverTooltip.style.right = '0';
+        hoverTooltip.style.bottom = '100%';
+        hoverTooltip.style.marginBottom = '6px';
         hoverTooltip.style.padding = '6px 10px';
-        hoverTooltip.style.marginBottom = '8px';
         hoverTooltip.style.borderRadius = '8px';
         hoverTooltip.style.background = 'rgba(0, 0, 0, 0.75)';
         hoverTooltip.style.color = '#fff';
@@ -158,6 +169,7 @@
         hoverTooltip.style.opacity = '0';
         hoverTooltip.style.visibility = 'hidden';
         hoverTooltip.style.transition = 'opacity 0.15s ease';
+        hoverTooltip.style.zIndex = '1';
 
         const toggleTooltip = (show) => {
             hoverTooltip.style.opacity = show ? '1' : '0';
@@ -190,10 +202,14 @@
             exportBtn.style.cursor = exportBtn.disabled ? 'not-allowed' : 'pointer';
         };
         exportBtn.addEventListener('mouseenter', () => {
-            if (!exportBtn.disabled) exportBtn.style.background = 'rgba(255, 255, 255, 0.3)';
+            if (!exportBtn.disabled) {
+                exportBtn.style.background = '#ebebeb';
+                exportBtn.style.borderColor = '#b0b0b0';
+            }
         });
         exportBtn.addEventListener('mouseleave', () => {
-            exportBtn.style.background = 'rgba(255, 255, 255, 0.18)';
+            exportBtn.style.background = '#f5f5f5';
+            exportBtn.style.borderColor = '#cccccc';
         });
         syncExportBtnVisual();
 
@@ -209,8 +225,9 @@
         panel.appendChild(header);
         panel.appendChild(iframe);
         root.appendChild(panel);
-        root.appendChild(hoverTooltip);
-        root.appendChild(launcher);
+        launcherWrap.appendChild(hoverTooltip);
+        launcherWrap.appendChild(launcher);
+        root.appendChild(launcherWrap);
         document.body.appendChild(root);
 
         launcher.setAttribute('aria-expanded', cfg.startOpen ? 'true' : 'false');
