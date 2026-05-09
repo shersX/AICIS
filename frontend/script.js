@@ -1,5 +1,7 @@
 const { createApp } = Vue;
 
+const AICIS_AUTH_STORAGE_KEY = 'aicis_auth';
+
 createApp({
     data() {
         return {
@@ -18,7 +20,12 @@ createApp({
             exportModalVisible: false,
             exportModalLoading: false,
             exportRounds: [],
-            exportSessionLabel: ''
+            exportSessionLabel: '',
+            // 嵌入式 SSO 鉴权状态
+            authTicket: '',
+            employeeNo: '',
+            employeeName: '',
+            authReady: false
         };
     },
     computed: {
@@ -33,24 +40,126 @@ createApp({
         const params = new URLSearchParams(window.location.search);
         this.isEmbedMode = params.get('embed') === '1';
         this.configureMarked();
-        // 尝试从 localStorage 恢复用户ID
-        const savedUserId = localStorage.getItem('userId');
-        if (savedUserId) {
-            this.userId = savedUserId;
+
+        // 嵌入模式下：身份完全由父页 postMessage 注入；不再用随机 userId。
+        // 独立访问模式下：保留原有匿名行为，方便本地开发（注意：后端会拒绝无 ticket 的请求）。
+        if (this.isEmbedMode) {
+            this.userId = '';
+            this.restoreAuthFromStorage();
+            this.installEmbedMessageHandlers();
+            // 主动请求父页发送 auth（处理 iframe 比 embed.js 先 ready 的情况）
+            try {
+                window.parent.postMessage({ type: 'aicis-request-auth' }, '*');
+            } catch (_) {
+                /* ignore */
+            }
         } else {
-            localStorage.setItem('userId', this.userId);
-        }
-        if (this.isEmbedMode && window.parent !== window) {
-            window.addEventListener('message', (e) => {
-                if (e.source !== window.parent) return;
-                if (e.data && e.data.type === 'aicis-open-export') {
-                    this.openExportCurrent();
-                }
-            });
+            // 非嵌入模式：保留原 localStorage userId 行为
+            const savedUserId = localStorage.getItem('userId');
+            if (savedUserId) {
+                this.userId = savedUserId;
+            } else {
+                localStorage.setItem('userId', this.userId);
+            }
+            this.authReady = true;
         }
         this.notifyParentExportState();
     },
     methods: {
+        // ---------- 嵌入式 SSO 鉴权 ----------
+        restoreAuthFromStorage() {
+            try {
+                const raw = sessionStorage.getItem(AICIS_AUTH_STORAGE_KEY);
+                if (!raw) return;
+                const obj = JSON.parse(raw);
+                if (obj && obj.ticket && obj.employee_no) {
+                    this.applyAuthPayload(obj, /*persist=*/false);
+                }
+            } catch (_) {
+                /* ignore */
+            }
+        },
+        applyAuthPayload(payload, persist = true) {
+            this.authTicket = payload.ticket || '';
+            this.employeeNo = payload.employee_no || '';
+            this.employeeName = payload.employee_name || '';
+            if (this.employeeNo) {
+                this.userId = this.employeeNo;
+                this.authReady = true;
+                if (persist) {
+                    try {
+                        sessionStorage.setItem(AICIS_AUTH_STORAGE_KEY, JSON.stringify({
+                            ticket: this.authTicket,
+                            employee_no: this.employeeNo,
+                            employee_name: this.employeeName,
+                            expires_at: payload.expires_at || ''
+                        }));
+                    } catch (_) {
+                        /* ignore */
+                    }
+                }
+            }
+        },
+        clearAuth() {
+            this.authTicket = '';
+            this.employeeNo = '';
+            this.employeeName = '';
+            this.authReady = false;
+            try {
+                sessionStorage.removeItem(AICIS_AUTH_STORAGE_KEY);
+            } catch (_) {
+                /* ignore */
+            }
+        },
+        installEmbedMessageHandlers() {
+            window.addEventListener('message', (e) => {
+                if (e.source !== window.parent) return;
+                const data = e.data;
+                if (!data || typeof data !== 'object') return;
+                if (data.type === 'aicis-open-export') {
+                    this.openExportCurrent();
+                } else if (data.type === 'aicis-auth') {
+                    this.applyAuthPayload(data, /*persist=*/true);
+                }
+            });
+        },
+        notifyParentAuthInvalid() {
+            if (!this.isEmbedMode || window.parent === window) return;
+            try {
+                window.parent.postMessage({ type: 'aicis-auth-invalid' }, '*');
+            } catch (_) {
+                /* ignore */
+            }
+        },
+        /** 给所有受保护接口的 fetch 拼上 Authorization / X-AICIS-Embed 头。
+         *
+         * - 嵌入模式（this.isEmbedMode）：始终带 X-AICIS-Embed: 1，让后端走严格鉴权；
+         *   带 ticket 时再附 Authorization。
+         * - 独立模式：不带任何鉴权头，后端按匿名访问处理（保留原行为）。
+         */
+        authFetch(url, options = {}) {
+            const opts = { ...options };
+            opts.headers = { ...(options.headers || {}) };
+            if (this.isEmbedMode) {
+                opts.headers['X-AICIS-Embed'] = '1';
+            }
+            if (this.authTicket) {
+                opts.headers['Authorization'] = `Bearer ${this.authTicket}`;
+            }
+            return fetch(url, opts);
+        },
+        async ensureAuthOrAlert() {
+            if (this.authReady && this.authTicket) return true;
+            if (this.isEmbedMode) {
+                // 再向父页索要一次（可能 sso_login 还在路上）
+                try {
+                    window.parent.postMessage({ type: 'aicis-request-auth' }, '*');
+                } catch (_) { /* ignore */ }
+                return false;
+            }
+            return true;
+        },
+
         configureMarked() {
             marked.setOptions({
                 highlight: function(code, lang) {
@@ -105,6 +214,10 @@ createApp({
         async handleSend() {
             const text = this.userInput.trim();
             if (!text || this.isLoading || this.isComposing) return;
+            if (this.isEmbedMode && !(await this.ensureAuthOrAlert())) {
+                alert('正在校验登录身份，请稍候再试…');
+                return;
+            }
 
             // Add user message
             this.messages.push({
@@ -136,7 +249,7 @@ createApp({
             this.abortController = new AbortController();
 
             try {
-                const response = await fetch('chat/stream', {
+                const response = await this.authFetch('chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -147,6 +260,12 @@ createApp({
                     signal: this.abortController.signal,
                 });
 
+                if (response.status === 401) {
+                    // ticket 失效：清理本地缓存，让父页重新拉一次
+                    this.clearAuth();
+                    this.notifyParentAuthInvalid();
+                    throw new Error('登录已过期，正在自动重新登录，请稍后再试');
+                }
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
                 const reader = response.body.getReader();
@@ -257,7 +376,7 @@ createApp({
             this.activeNav = 'history';
             this.showHistorySidebar = true;
             try {
-                const response = await fetch(`sessions/${this.userId}`);
+                const response = await this.authFetch(`sessions/${this.userId}`);
                 if (!response.ok) {
                     throw new Error('Failed to load sessions');
                 }
@@ -276,7 +395,7 @@ createApp({
             
             // 从后端加载历史消息
             try {
-                const response = await fetch(`sessions/${this.userId}/${sessionId}`);
+                const response = await this.authFetch(`sessions/${this.userId}/${sessionId}`);
                 if (!response.ok) {
                     throw new Error('Failed to load session messages');
                 }
@@ -392,7 +511,7 @@ createApp({
             this.exportRounds = [];
             this.exportSessionLabel = sid;
             try {
-                const response = await fetch(`sessions/${this.userId}/${sid}`);
+                const response = await this.authFetch(`sessions/${this.userId}/${sid}`);
                 if (!response.ok) throw new Error('无法加载会话');
                 const data = await response.json();
                 const ui = this.apiMessagesToUiMessages(data.messages);
@@ -543,7 +662,7 @@ createApp({
             }
 
             try {
-                const response = await fetch(`sessions/${this.userId}/${sessionId}`, {
+                const response = await this.authFetch(`sessions/${this.userId}/${sessionId}`, {
                     method: 'DELETE'
                 });
 

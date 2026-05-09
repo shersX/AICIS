@@ -60,6 +60,8 @@ class MessageInfo(BaseModel):
     content: str
     timestamp: str
     rag_trace: Optional[RagTrace] = None
+    employee_no: Optional[str] = None
+    employee_name: Optional[str] = None
 
 
 class SessionMessagesResponse(BaseModel):
@@ -70,6 +72,8 @@ class SessionInfo(BaseModel):
     session_id: str
     updated_at: str
     message_count: int
+    employee_no: Optional[str] = None
+    employee_name: Optional[str] = None
 
 
 class SessionListResponse(BaseModel):
@@ -79,3 +83,17 @@ class SessionListResponse(BaseModel):
 class SessionDeleteResponse(BaseModel):
     session_id: str
     message: str
+
+
+# ---------------- 鉴权 ----------------
+
+
+class SSOLoginRequest(BaseModel):
+    oassotoken: str
+
+
+class SSOLoginResponse(BaseModel):
+    ticket: str
+    employee_no: str
+    employee_name: Optional[str] = None
+    expires_at: str

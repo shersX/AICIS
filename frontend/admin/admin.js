@@ -132,6 +132,8 @@
                 model: "",
                 role: "",
                 status: "",
+                employee_no: "",
+                employee_name: "",
                 range: "all",
                 page: 1,
                 page_size: 20,
@@ -139,6 +141,8 @@
             const defaultSessionsFilters = () => ({
                 q: "",
                 user_id: "",
+                employee_no: "",
+                employee_name: "",
                 range: "all",
                 page: 1,
                 page_size: 20,

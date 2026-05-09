@@ -55,6 +55,8 @@
                 <div class="filters">
                     <input v-model="logsFilters.q" placeholder="关键词（匹配正文）" @keydown.enter="reloadLogs">
                     <input v-model="logsFilters.user_id" placeholder="user_id">
+                    <input v-model="logsFilters.employee_no" placeholder="员工工号" @keydown.enter="reloadLogs">
+                    <input v-model="logsFilters.employee_name" placeholder="员工姓名（模糊）" @keydown.enter="reloadLogs">
                     <input v-model="logsFilters.session_id" placeholder="session_id">
                     <input v-model="logsFilters.model" placeholder="模型（精确）">
                     <select v-model="logsFilters.role">
@@ -83,7 +85,7 @@
                         <thead>
                         <tr>
                             <th style="width:150px">时间</th>
-                            <th style="width:160px">用户</th>
+                            <th style="width:120px">员工</th>
                             <th style="width:160px">会话</th>
                             <th style="width:80px">角色</th>
                             <th>内容</th>
@@ -102,7 +104,12 @@
                             @click="openLogDetail(row)"
                         >
                             <td>{{ formatTime(row.created_at) }}</td>
-                            <td><code class="mono id-cell" :title="row.user_id">{{ row.user_id }}</code></td>
+                            <td>
+                                <div class="emp-cell" :title="row.employee_no || row.user_id">
+                                    <div class="emp-name">{{ row.employee_name || '—' }}</div>
+                                    <code class="mono emp-no">{{ row.employee_no || row.user_id }}</code>
+                                </div>
+                            </td>
                             <td><code class="mono id-cell" :title="row.session_id">{{ row.session_id }}</code></td>
                             <td>{{ roleLabel(row.role) }}</td>
                             <td class="cell-content">
@@ -136,6 +143,8 @@
                 <div class="filters">
                     <input v-model="sessionsFilters.q" placeholder="标题关键词" @keydown.enter="reloadSessions">
                     <input v-model="sessionsFilters.user_id" placeholder="user_id">
+                    <input v-model="sessionsFilters.employee_no" placeholder="员工工号" @keydown.enter="reloadSessions">
+                    <input v-model="sessionsFilters.employee_name" placeholder="员工姓名（模糊）" @keydown.enter="reloadSessions">
                     <select v-model="sessionsFilters.range" title="时间范围" @change="reloadSessions">
                         <option value="all">至今（全部）</option>
                         <option value="7d">过去 7 天</option>
@@ -150,7 +159,7 @@
                         <thead>
                         <tr>
                             <th style="width:160px">最后更新</th>
-                            <th style="width:160px">用户</th>
+                            <th style="width:120px">员工</th>
                             <th style="width:160px">会话</th>
                             <th>标题（首问预览）</th>
                             <th style="width:80px">消息数</th>
@@ -167,7 +176,12 @@
                             @click="openSessionDetail(row)"
                         >
                             <td>{{ formatTime(row.updated_at) }}</td>
-                            <td><code class="mono id-cell" :title="row.user_id">{{ row.user_id }}</code></td>
+                            <td>
+                                <div class="emp-cell" :title="row.employee_no || row.user_id">
+                                    <div class="emp-name">{{ row.employee_name || '—' }}</div>
+                                    <code class="mono emp-no">{{ row.employee_no || row.user_id }}</code>
+                                </div>
+                            </td>
                             <td><code class="mono id-cell" :title="row.session_id">{{ row.session_id }}</code></td>
                             <td class="cell-content">
                                 <div class="content-preview">{{ row.title || '（无）' }}</div>
@@ -242,6 +256,10 @@
                         <div class="kv"><span>消息 ID</span><code>{{ logDetail.id }}</code></div>
                         <div class="kv"><span>时间</span><code>{{ formatTime(logDetail.created_at) }}</code></div>
                         <div class="kv"><span>用户</span><code class="mono">{{ logDetail.user_id }}</code></div>
+                        <div class="kv" v-if="logDetail.employee_no || logDetail.employee_name"><span>员工</span>
+                            <span>{{ logDetail.employee_name || '—' }}</span>
+                            <code class="mono">{{ logDetail.employee_no || '—' }}</code>
+                        </div>
                         <div class="kv"><span>会话</span>
                             <code class="mono">{{ logDetail.session_id }}</code>
                             <button class="link-btn" @click="openSessionById(logDetail.session_id)">查看整段会话</button>
@@ -286,6 +304,10 @@
                         <div class="kv"><span>用户</span>
                             <code class="mono">{{ sessionDetail.session.user_id }}</code>
                             <button class="link-btn" @click="filterByUser(sessionDetail.session.user_id)">按此用户筛选日志</button>
+                        </div>
+                        <div class="kv" v-if="sessionDetail.session.employee_no || sessionDetail.session.employee_name"><span>员工</span>
+                            <span>{{ sessionDetail.session.employee_name || '—' }}</span>
+                            <code class="mono">{{ sessionDetail.session.employee_no || '—' }}</code>
                         </div>
                         <div class="kv"><span>标题</span><span>{{ sessionDetail.session.title || '（无）' }}</span></div>
                         <div class="kv"><span>消息数</span><code>{{ sessionDetail.session.message_count }}</code></div>

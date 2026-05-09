@@ -5,6 +5,7 @@ from pathlib import Path
 
 import backend.api as api_module
 import backend.admin_api as admin_api_module
+import backend.auth as auth_module
 from backend import db
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
             response.headers["Expires"] = "0"
         return response
 
+    app.include_router(auth_module.router)
     app.include_router(api_module.router)
     app.include_router(admin_api_module.router)
 

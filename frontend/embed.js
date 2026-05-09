@@ -14,21 +14,43 @@
         bottom: 20,
         zIndex: 2147483000,
         startOpen: false,
+        // OA 单点登录使用的 cookie 名；如运维改名可在 window.AICIS_CHATBOT_CONFIG 里覆盖
+        ssoCookieName: 'oassotoken',
+    };
+
+    /** 读取一个 cookie。注意：HttpOnly 的 cookie 永远读不到，调用方需要自己兜底。 */
+    const readCookie = (name) => {
+        const re = new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)');
+        const m = document.cookie.match(re);
+        return m ? decodeURIComponent(m[1]) : '';
     };
 
     const mount = () => {
         const userConfig = window.AICIS_CHATBOT_CONFIG || {};
         const cfg = { ...defaults, ...userConfig };
 
-        const normalizedBase = cfg.baseUrl.replace(/\/+$/, '');
+        // baseUrl 支持两种形态：
+        //   1) 同域路径反代：'/aicis/'      -> normalizedBase='/aicis', isAbsoluteBase=false
+        //   2) 跨域直连绝对 URL：'http://...' -> normalizedBase='http://...', isAbsoluteBase=true
+        const rawBase = (cfg.baseUrl || '').replace(/\/+$/, '');
+        const isAbsoluteBase = /^https?:\/\//i.test(rawBase);
+        const normalizedBase = rawBase;
         const normalizedPath = cfg.iframePath.startsWith('/') ? cfg.iframePath : `/${cfg.iframePath}`;
         const iframeSrc = `${normalizedBase}${normalizedPath}?${cfg.iframeQuery}`;
+
+        // postMessage 的 targetOrigin：同源走 location.origin，跨源走 baseUrl 的 origin。
         let postTargetOrigin = '*';
-        try {
-            postTargetOrigin = new URL(normalizedBase).origin;
-        } catch (_) {
-            /* keep * */
+        if (isAbsoluteBase) {
+            try {
+                postTargetOrigin = new URL(normalizedBase).origin;
+            } catch (_) {
+                postTargetOrigin = '*';
+            }
+        } else {
+            postTargetOrigin = window.location.origin;
         }
+
+        const ssoLoginUrl = `${normalizedBase}/auth/sso_login`;
 
         const root = document.createElement('div');
         root.setAttribute('id', 'aicis-embed-root');
@@ -132,6 +154,71 @@
         iframe.setAttribute('allow', 'clipboard-write');
         iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
 
+        // ----------------- SSO 鉴权：拿 ticket → postMessage 发给 iframe -----------------
+        // 缓存最近一次成功的 auth 结果，便于 iframe 重新 ready 时补发。
+        let lastAuthPayload = null;
+        let pendingAuthFetch = null;
+
+        const sendAuthToIframe = () => {
+            if (!lastAuthPayload || !iframe.contentWindow) return;
+            try {
+                iframe.contentWindow.postMessage(
+                    { type: 'aicis-auth', ...lastAuthPayload },
+                    postTargetOrigin,
+                );
+            } catch (_) {
+                /* 忽略 */
+            }
+        };
+
+        const fetchAuth = async () => {
+            // 同一时间只跑一份，避免 iframe 多次索要时打多份请求。
+            if (pendingAuthFetch) return pendingAuthFetch;
+            const oassotoken = readCookie(cfg.ssoCookieName);
+            if (!oassotoken) {
+                console.warn('[AICIS] 未找到 cookie:', cfg.ssoCookieName, '— 嵌入式问答将无法绑定员工身份');
+                return null;
+            }
+            pendingAuthFetch = (async () => {
+                try {
+                    const r = await fetch(ssoLoginUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ oassotoken }),
+                        credentials: 'omit',
+                    });
+                    if (!r.ok) {
+                        console.warn('[AICIS] sso_login 失败：HTTP', r.status, await r.text().catch(() => ''));
+                        return null;
+                    }
+                    const data = await r.json();
+                    lastAuthPayload = {
+                        ticket: data.ticket,
+                        employee_no: data.employee_no,
+                        employee_name: data.employee_name || '',
+                        expires_at: data.expires_at || '',
+                    };
+                    sendAuthToIframe();
+                    return lastAuthPayload;
+                } catch (e) {
+                    console.warn('[AICIS] sso_login 异常：', e);
+                    return null;
+                } finally {
+                    pendingAuthFetch = null;
+                }
+            })();
+            return pendingAuthFetch;
+        };
+
+        // iframe 加载完成后：先看缓存有没有，没有就主动拉一次。
+        iframe.addEventListener('load', () => {
+            if (lastAuthPayload) {
+                sendAuthToIframe();
+            } else {
+                fetchAuth();
+            }
+        });
+
         const launcher = document.createElement('button');
         launcher.type = 'button';
         launcher.setAttribute('aria-label', cfg.title);
@@ -215,10 +302,23 @@
 
         window.addEventListener('message', (e) => {
             if (e.source !== iframe.contentWindow) return;
-            if (e.data && e.data.type === 'aicis-export-state') {
-                const n = Number(e.data.count) || 0;
+            const data = e.data;
+            if (!data || typeof data !== 'object') return;
+            if (data.type === 'aicis-export-state') {
+                const n = Number(data.count) || 0;
                 exportBtn.disabled = n < 1;
                 syncExportBtnVisual();
+            } else if (data.type === 'aicis-request-auth') {
+                // iframe 启动时主动索要鉴权信息（如果之前已经成功拿过就直接补发）。
+                if (lastAuthPayload) {
+                    sendAuthToIframe();
+                } else {
+                    fetchAuth();
+                }
+            } else if (data.type === 'aicis-auth-invalid') {
+                // iframe 收到 401，让父页清缓存重新换。
+                lastAuthPayload = null;
+                fetchAuth();
             }
         });
 

@@ -168,6 +168,9 @@ code, pre, .mono { font-family: "SFMono-Regular", Menlo, Consolas, "Liberation M
 .empty-row { text-align: center; color: #98a2b3; padding: 28px; }
 .cell-content { max-width: 0; }
 .id-cell { white-space: nowrap; font-size: 12px; }
+.emp-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; min-width: 0; }
+.emp-cell .emp-name { font-weight: 600; font-size: 13px; color: #1f2328; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emp-cell .emp-no { font-size: 11px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .content-preview {
     display: -webkit-box;
     -webkit-line-clamp: 2;

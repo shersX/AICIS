@@ -32,11 +32,17 @@ class ConversationStorage:
         messages: list,
         metadata: dict = None,
         extra_message_data: list = None,
+        *,
+        employee_no: str | None = None,
+        employee_name: str | None = None,
     ):
         """替换式保存整个会话的消息列表。
 
         ``extra_message_data`` 与 ``messages`` 同长度，每项可包含：
           ``rag_trace`` / ``model`` / ``latency_ms`` / ``status`` / ``error_message``
+
+        ``employee_no``/``employee_name``：本次会话归属的真实员工身份；如未提供
+        （例如本地匿名调试），则以 ``user_id`` 作为兜底写入 employee_no、姓名留空。
         """
         now_iso = datetime.now().isoformat()
         serialized = []
@@ -60,7 +66,13 @@ class ConversationStorage:
                     "error_message": extra.get("error_message"),
                 }
             )
-        db.save_session(user_id, session_id, serialized)
+        db.save_session(
+            user_id,
+            session_id,
+            serialized,
+            employee_no=employee_no or user_id,
+            employee_name=employee_name,
+        )
 
     def load(self, user_id: str, session_id: str) -> list:
         rows = db.load_session_messages(user_id, session_id)
@@ -211,8 +223,17 @@ def _build_extra_for_assistant(
     ]
 
 
-def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
-    """使用 Agent 处理用户消息并返回响应"""
+def chat_with_agent(
+    user_text: str,
+    user_id: str = "default_user",
+    session_id: str = "default_session",
+    *,
+    employee_name: str | None = None,
+):
+    """使用 Agent 处理用户消息并返回响应。
+
+    ``employee_name`` 仅用于落库展示，``user_id`` 即员工工号 (employee_no)。
+    """
     messages = storage.load(user_id, session_id)
     runtime = ToolRuntime()
 
@@ -274,7 +295,14 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
         error_message=error_message,
     )
     try:
-        storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
+        storage.save(
+            user_id,
+            session_id,
+            messages,
+            extra_message_data=extra_message_data,
+            employee_no=user_id,
+            employee_name=employee_name,
+        )
     except Exception as save_exc:  # noqa: BLE001
         # 保存失败不掩盖真正的业务错误，只打日志
         print(f"[AGENT] 保存会话失败：{save_exc}", file=sys.stderr)
@@ -288,7 +316,13 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
     }
 
 
-async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
+async def chat_with_agent_stream(
+    user_text: str,
+    user_id: str = "default_user",
+    session_id: str = "default_session",
+    *,
+    employee_name: str | None = None,
+):
     """使用 Agent 处理用户消息并流式返回响应。
     
     架构：使用统一输出队列 + 后台任务，确保 RAG 检索步骤在工具执行期间实时推送，
@@ -410,6 +444,13 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         error_message=agent_error_msg,
     )
     try:
-        storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
+        storage.save(
+            user_id,
+            session_id,
+            messages,
+            extra_message_data=extra_message_data,
+            employee_no=user_id,
+            employee_name=employee_name,
+        )
     except Exception as save_exc:  # noqa: BLE001
         print(f"[AGENT_STREAM] 保存会话失败：{save_exc}", file=sys.stderr)
