@@ -6,7 +6,7 @@
         baseUrl: '',
         iframePath: '/',
         iframeQuery: 'embed=1',
-        title: 'AICIS 智能助手',
+        title: 'AICIS 智能助手（试用版）',
         icon: '🧠',
         width: 380,
         height: 640,
