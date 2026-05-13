@@ -82,6 +82,9 @@ services:
     env_file:
       - .env
     environment:
+      # 容器时区：影响 Python datetime.now()、SQLite 落库时间、容器内 date 命令。
+      # 可在项目根 .env 里设 TZ=Asia/Shanghai；未设时默认东八区。
+      TZ: ${TZ:-Asia/Shanghai}
       # 覆盖 .env 里的 127.0.0.1，指向 compose 内部的 Milvus 服务
       MILVUS_HOST: standalone
       MILVUS_PORT: "19530"
@@ -109,6 +112,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MILVUS_HOST: standalone
       MILVUS_PORT: "19530"
     volumes:
